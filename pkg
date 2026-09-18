@@ -7,9 +7,9 @@ local CONFIG_FILE=CONFIG_DIR.."/config.json"
 local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
-local DEFAULT_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/"
+local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
 local PKG_VERSION="0.5.0"
-local PKG_SOURCE=DEFAULT_REPO.."pkg"
+local PKG_SOURCE=DEFAULT_REPO
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
 
