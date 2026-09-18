@@ -1,32 +1,63 @@
-# CC PKG repository format
+# Creating a CC PKG Repository
 
-A CC PKG repository is any HTTP-accessible directory containing `index.json` and `repometadata.json`.
+This guide explains how to make your own package repository for CC PKG.
 
-Repositories can be hosted on GitHub Pages, a normal web server, or any static file host supporting HTTP(S). No server-side API is required.
+You do **not** need to run a server. A normal static website host is enough.
 
-## Repository metadata
+## 1. Make a repository
 
-Every repository must have a file named `repometadata.json` at its root.
+Create a folder for your package repository.
+
+A simple repository looks like this:
+
+~~~text
+my-pkg-repo/
+├── repometadata.json
+├── index.json
+└── packages/
+    └── hello/
+        └── package.json
+~~~
+
+You can use GitHub Pages to host this for free.
+
+## 2. Create `repometadata.json`
+
+Create a file named exactly:
+
+~~~text
+repometadata.json
+~~~
+
+Put it in the root of your repository.
 
 Example:
 
-```json
+~~~json
 {
-  "name": "My Repository"
+  "name": "My Packages"
 }
-```
+~~~
 
-The `name` field is the repository display name. CC PKG uses this name when listing and storing the repository.
+The `name` field is the name CC PKG will show for your repository.
 
-## Repository index
+You do **not** give the repository name to the user. CC PKG gets it automatically from `repometadata.json`.
 
-Every repository must also have an `index.json` file.
+## 3. Create `index.json`
+
+Create a file named exactly:
+
+~~~text
+index.json
+~~~
+
+This file tells CC PKG which packages are available.
 
 Example:
 
-```json
+~~~json
 {
-  "name": "My Repository",
+  "name": "My Packages",
   "version": 1,
   "packages": {
     "hello": {
@@ -36,46 +67,239 @@ Example:
     }
   }
 }
-```
+~~~
 
-The client downloads the manifest and then downloads each file listed by the manifest.
+The package name is `hello`. The manifest path is `packages/hello/package.json`. Paths are relative to your repository URL.
 
-## Adding a repository
+## 4. Create the package manifest
 
-Users add a repository using only its URL:
+Create:
 
-```text
-pkg repo add https://example.com/ccpkg/
-```
+~~~text
+packages/hello/package.json
+~~~
 
-CC PKG automatically downloads `repometadata.json` to obtain the repository name, then checks `index.json` before adding the repository.
+Example:
 
-Do not ask users to provide a separate repository name.
+~~~json
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "description": "A small example package",
+  "files": [
+    {
+      "path": "hello",
+      "source": "packages/hello/hello"
+    }
+  ]
+}
+~~~
 
-## Repository structure
+The manifest tells CC PKG which files to download.
 
-```text
-ccpkg/
+## 5. Add the package files
+
+For the example above, create:
+
+~~~text
+packages/hello/hello
+~~~
+
+Put your Lua program in that file:
+
+~~~lua
+print("Hello from my package!")
+~~~
+
+When installed, this file is downloaded to `/hello` because the manifest uses `"path": "hello"`.
+
+## 6. Finished repository
+
+Your repository should now look like:
+
+~~~text
+my-pkg-repo/
 ├── repometadata.json
 ├── index.json
 └── packages/
     └── hello/
-        └── package.json
-```
+        ├── package.json
+        └── hello
+~~~
 
-## Publishing checklist
+## 7. Host the repository
 
-Before publishing your repository, make sure:
+Your repository must be available over HTTP or HTTPS.
 
-1. `repometadata.json` exists at the repository root.
-2. `repometadata.json` contains a non-empty `name`.
-3. `index.json` is valid JSON.
-4. Every listed package has a valid manifest.
-5. Every manifest file source is reachable over HTTP(S).
-6. Your repository is accessible from CC:Tweaked with HTTP enabled.
+GitHub Pages is a free option.
 
-Community repositories are independently hosted and maintained. Users should only add repositories they trust, because package files can execute Lua code on their computer.
+For example, if your GitHub Pages address is:
 
-## Hosting
+~~~text
+https://yourname.github.io/my-pkg-repo/
+~~~
 
-GitHub Pages is a convenient free option for static CC PKG repositories. A normal web server or another static HTTP(S) host also works.
+these files must be reachable:
+
+~~~text
+https://yourname.github.io/my-pkg-repo/repometadata.json
+https://yourname.github.io/my-pkg-repo/index.json
+https://yourname.github.io/my-pkg-repo/packages/hello/package.json
+https://yourname.github.io/my-pkg-repo/packages/hello/hello
+~~~
+
+## 8. Add your repository to CC PKG
+
+Users only need your repository URL:
+
+~~~text
+pkg repo add https://yourname.github.io/my-pkg-repo/
+~~~
+
+CC PKG automatically:
+
+1. Downloads `repometadata.json`.
+2. Reads the repository name.
+3. Downloads `index.json`.
+4. Checks that the repository works.
+5. Adds the repository.
+
+Users can see their repositories with:
+
+~~~text
+pkg repo list
+~~~
+
+Do not ask users to provide a separate repository name.
+
+## 9. Install your package
+
+After adding your repository:
+
+~~~text
+pkg install hello
+~~~
+
+CC PKG finds `hello` in `index.json`, downloads its manifest, and downloads the files listed in that manifest.
+
+## Adding more packages
+
+You can put many packages in one repository.
+
+Example:
+
+~~~text
+my-pkg-repo/
+├── repometadata.json
+├── index.json
+└── packages/
+    ├── hello/
+    │   ├── package.json
+    │   └── hello
+    ├── calculator/
+    │   ├── package.json
+    │   └── calculator
+    └── my-os/
+        ├── package.json
+        └── startup
+~~~
+
+Add each package to `index.json`.
+
+## Multiple versions
+
+You can provide different versions of a package.
+
+A version name containing `pocket` is treated as a pocket-computer version. Other version names are treated as regular-computer versions.
+
+Example:
+
+~~~json
+{
+  "name": "my-os",
+  "description": "My operating system",
+  "versions": {
+    "v1.0": {
+      "manifest": "packages/my-os/1.0/package.json"
+    },
+    "v1.1": {
+      "manifest": "packages/my-os/1.1/package.json"
+    },
+    "v1.1 pocket": {
+      "manifest": "packages/my-os/1.1-pocket/package.json"
+    }
+  }
+}
+~~~
+
+A regular computer can select `v1.1`. A pocket computer can select `v1.1 pocket`.
+
+## Dependencies
+
+A package can require other packages.
+
+Example:
+
+~~~json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "description": "An application that needs another package",
+  "dependencies": [
+    "library"
+  ],
+  "files": [
+    {
+      "path": "my-app",
+      "source": "packages/my-app/my-app"
+    }
+  ]
+}
+~~~
+
+When the user runs `pkg install my-app`, CC PKG installs `library` first and then `my-app`.
+
+## Updating packages
+
+When you publish a newer version, update `index.json` and add the new manifest and files.
+
+Users can then run:
+
+~~~text
+pkg upgrade
+~~~
+
+## Testing
+
+Before sharing your repository, check that `repometadata.json` and `index.json` work in a web browser.
+
+Then test in CC:Tweaked:
+
+~~~text
+pkg repo add https://yourname.github.io/my-pkg-repo/
+pkg repo list
+pkg search hello
+pkg install hello
+~~~
+
+If `pkg repo add` fails, check that:
+
+- `repometadata.json` exists at the repository root.
+- `repometadata.json` is valid JSON.
+- `repometadata.json` contains a non-empty `name`.
+- `index.json` exists and is valid JSON.
+- Every package manifest exists.
+- Every package file is reachable.
+- CC:Tweaked HTTP access is enabled.
+
+## Security
+
+A package can contain Lua code that runs on a user's CC:Tweaked computer.
+
+Only install repositories and packages you trust.
+
+Community repositories are independently maintained. Creating a repository does not make it an official CC PKG repository.
+
+Have fun making packages, and thanks for helping the CC PKG community grow! 🚀
