@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "description": "Benign suspicious-code indicators used by the CC PKG scanners. This is not malware.",
+  "signatures": [
+    {"name":"dynamic code loading","pattern":"loadstring("},
+    {"name":"dynamic code loading","pattern":"loadfile("},
+    {"name":"shell execution","pattern":"shell.run("},
+    {"name":"remote code pattern","pattern":"dofile("},
+    {"name":"file deletion","pattern":"fs.delete("},
+    {"name":"remote download","pattern":"http.get("},
+    {"name":"remote upload","pattern":"http.post("},
+    {"name":"websocket access","pattern":"http.websocket("},
+    {"name":"shutdown","pattern":"os.shutdown("},
+    {"name":"reboot","pattern":"os.reboot("}
+  ]
+}
