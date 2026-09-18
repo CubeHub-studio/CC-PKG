@@ -178,6 +178,9 @@ local function install(name,seen)
   seen=seen or {}; if seen[name] then return true end; seen[name]=true
   local e,v=find(name); if not e then return fail(v) end
   local m,mp,er=manifest(e._repo,e,v); if not m then return fail(mp) end
+  for _,f in ipairs(m.files or {}) do
+    if not safePath(f.path or f.source) then return fail("unsafe package path: "..tostring(f.path or f.source)) end
+  end
   if computerType()=="pocket" and not isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is not a pocket version") end
   if computerType()=="computer" and isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is pocket-only") end
   for _,d in ipairs(m.dependencies or {}) do if not install(d,seen) then return false end end
@@ -190,10 +193,16 @@ local function install(name,seen)
     local source=f.source or f.path
     local path=f.path or f.source
     local s,ce=get(url(e._repo._base or e._repo.url,source))
-    if not s then return fail("failed to install "..tostring(path)..": "..tostring(ce)) end
+    if not s then
+      if backup then restoreBackup(backup) end
+      return fail("failed to install "..tostring(path)..": "..tostring(ce))
+    end
     local p=fs.getDir(path); if p~="" and not fs.exists(p) then fs.makeDir(p) end
     local safe=safePath(path)
-    if not safe then return fail("unsafe package path: "..tostring(path)) end
+    if not safe then
+      if backup then restoreBackup(backup) end
+      return fail("unsafe package path: "..tostring(path))
+    end
     local h=fs.open(safe,"w")
     if not h then
       if backup then restoreBackup(backup) end
