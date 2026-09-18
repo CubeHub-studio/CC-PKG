@@ -20,6 +20,19 @@
           }
         }
       }
+    },
+    "moon-bios": {
+      "name": "moon-bios",
+      "description": "Moon BIOS for CC:Tweaked",
+      "versions": {
+        "1.3.0": {
+          "manifest": "packages/moon-bios/1.3.0/package.json",
+          "targets": {
+            "computer": true,
+            "pocket": true
+          }
+        }
+      }
     }
   }
 }
