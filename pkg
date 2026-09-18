@@ -5,9 +5,24 @@
 local CONFIG_DIR="/.ccpkg"
 local CONFIG_FILE=CONFIG_DIR.."/config.json"
 local DB_FILE=CONFIG_DIR.."/installed.json"
+local LOG_FILE=CONFIG_DIR.."/pkg.log"
+local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
 
-local function fail(m) printError("CC PKG: "..m) return false end
+local function logLine(path,m)
+  ensureDir()
+  local h=fs.open(path,"a")
+  if h then
+    h.writeLine(os.date("%Y-%m-%d %H:%M:%S").." | "..tostring(m))
+    h.close()
+  end
+end
+local function fail(m)
+  logLine(ERROR_LOG_FILE,m)
+  logLine(LOG_FILE,"ERROR: "..m)
+  printError("CC PKG: "..m)
+  return false
+end
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
 local function readJson(p,f)
   if not fs.exists(p) then return f end
@@ -35,8 +50,8 @@ end
 local function get(u)
   if not http then return nil,"HTTP API unavailable" end
   local ok,r=pcall(http.get,u,{["User-Agent"]="CC-PKG/0.4.0"})
-  if not ok or not r then return nil,"request failed: "..tostring(r) end
-  local s=r.readAll(); r.close(); return s
+  if not ok or not r then logLine(ERROR_LOG_FILE,"HTTP request failed: "..tostring(u).." | "..tostring(r)); return nil,"request failed: "..tostring(r) end
+  local s=r.readAll(); r.close(); logLine(LOG_FILE,"GET "..tostring(u)); return s
 end
 local function index(repo)
   local b=repo.url; if b:sub(-1)~="/" then b=b.."/" end
@@ -88,6 +103,7 @@ local function find(name)
   return nil,"package not found or unsupported on this computer"
 end
 local function install(name,seen)
+  logLine(LOG_FILE,"INSTALL "..tostring(name).." on "..computerType())
   seen=seen or {}; if seen[name] then return true end; seen[name]=true
   local e,v=find(name); if not e then return fail(v) end
   local m,mp,er=manifest(e._repo,e,v); if not m then return fail(mp) end
@@ -111,6 +127,7 @@ local function install(name,seen)
   saveDb(d); print("Installed "..name.." "..tostring(m.version).."."); return true
 end
 local function remove(name)
+  logLine(LOG_FILE,"REMOVE "..tostring(name))
   local d=db(); local p=d.packages[name]; if not p then return fail("package is not installed: "..name) end
   for _,f in ipairs(p.files or {}) do local x="/"..(f.path or f.source):gsub("^/",""); if fs.exists(x) then fs.delete(x) end end
   d.packages[name]=nil; saveDb(d); print("Removed "..name..".")
@@ -162,6 +179,8 @@ local function upgrade()
 end
 local function help()
   print("CC PKG 0.4.0")
+  print("Logs: /.ccpkg/pkg.log")
+  print("Errors: /.ccpkg/error.log")
   print("Version target rule:")
   print("  * Versions containing 'pocket' = pocket computer")
   print("  * All other versions = regular computer")
