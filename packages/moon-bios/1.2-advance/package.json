@@ -1,11 +1,11 @@
 {
-  "name": "moon-bios",
-  "version": "v1.2 advance",
-  "description": "Moon BIOS for regular computers - Advance build",
-  "author": "CubeHub Studio",
-  "dependencies": [],
-  "files": [
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-advance/startup", "path": "startup"},
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-advance/updatemoonbios", "path": "updatemoonbios"}
+  "name":"moon-bios",
+  "version":"v1.2 advance",
+  "description":"Moon BIOS 1.2 Advance for regular computers",
+  "author":"CubeHub Studio",
+  "dependencies":[],
+  "files":[
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-advance/startup","path":"startup"},
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-advance/updatemoonbios","path":"updatemoonbios"}
   ]
 }
