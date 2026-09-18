@@ -1,34 +1,93 @@
 # CC PKG
 
-CC PKG is a lightweight package manager for CC:Tweaked.
+CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects versions based on the computer type, tracks installed packages, and supports dependencies.
 
-## Goals
+## Install CC PKG
 
-- Simple package installation from HTTP repositories
-- Version-aware updates
-- Safe package removal
-- Dependency support
-- Local package metadata
-- Static hosting on GitHub Pages or any HTTP server
+On a CC:Tweaked computer with HTTP enabled:
 
-## Client
+```lua
+wget https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/pkg pkg
+```
 
-The initial client is `pkg`.
+Then run:
 
 ```text
 pkg help
-pkg repo list
+```
+
+The client is installed as `/pkg`.
+
+## Update CC PKG itself
+
+CC PKG 0.5.0 includes a self-updater. Run:
+
+```text
+pkg self-update
+```
+
+It downloads the current `pkg` client from the official repository and replaces `/pkg`. Start `pkg` again after the update so the newly downloaded client is loaded.
+
+If you are using an older CC PKG version that does not have `self-update`, reinstall it with:
+
+```lua
+delete pkg
+wget https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/pkg pkg
+```
+
+## Package commands
+
+```text
+pkg help
 pkg search <query>
 pkg info <package>
 pkg install <package>
-pkg update
-pkg upgrade
 pkg remove <package>
 pkg list
+pkg update
+pkg upgrade
+pkg self-update
+pkg repo list
 ```
 
+`pkg update` currently refreshes repository metadata on demand; package metadata is fetched whenever commands need it. `pkg self-update` is the command for updating the CC PKG client itself. `pkg upgrade` upgrades installed packages.
+
+## Version targeting
+
+Package versions are selected by the version name:
+
+- A version containing `pocket` (case-insensitive) is for pocket computers.
+- Every other version name is for regular computers.
+- The highest compatible numeric version is selected.
+
+For example:
+
+- `v1.3 pocket` → pocket computer
+- `v1.2 advance` → regular computer
+- `v1.2 mini` → regular computer
+- `v1.3` → regular computer
+
+## Moon BIOS
+
+The official repository currently provides Moon BIOS packages with separate compatible versions. The regular-computer `v1.3` package serves the fixed v1.3 source.
+
+Install it with:
+
+```text
+pkg install moon-bios
+```
+
+## Local data and logs
+
+CC PKG stores its state in `/.ccpkg/`:
+
+- `config.json` — repository configuration
+- `installed.json` — installed package records
+- `pkg.log` — normal activity log
+- `error.log` — errors
+
+## Repository
+
+The default official repository is the CC-PKG GitHub repository. Package metadata is served from `index.json`, while package manifests and files are stored in the repository or referenced by HTTP source URLs.
+
 See `docs/package-format.md`, `docs/repository.md`, and `docs/architecture.md`.
-
-## Status
-
-This repository contains the initial CC PKG architecture. The format is intentionally small and HTTP-friendly so it can run on standard CC:Tweaked computers without external Lua libraries.
