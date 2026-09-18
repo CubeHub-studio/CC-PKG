@@ -1,0 +1,287 @@
+-- CC PKG - initial package manager
+-- CC:Tweaked 1.113.x+
+-- Usage: pkg <command> [arguments]
+
+local CONFIG_DIR = "/.ccpkg"
+local CONFIG_FILE = CONFIG_DIR .. "/config.json"
+local DB_FILE = CONFIG_DIR .. "/installed.json"
+local DEFAULT_REPO = "https://cubehub-studio.github.io/CC-PKG/"
+
+local function fail(message)
+  printError("CC PKG: " .. message)
+  return false
+end
+
+local function ensureDir()
+  if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end
+end
+
+local function readJson(path, fallback)
+  if not fs.exists(path) then return fallback end
+  local h = fs.open(path, "r")
+  if not h then return fallback end
+  local raw = h.readAll()
+  h.close()
+  local ok, value = pcall(textutils.unserialiseJSON, raw)
+  if ok and value ~= nil then return value end
+  return fallback
+end
+
+local function writeJson(path, value)
+  ensureDir()
+  local h = fs.open(path, "w")
+  if not h then return false end
+  h.write(textutils.serialiseJSON(value))
+  h.close()
+  return true
+end
+
+local function loadConfig()
+  local cfg = readJson(CONFIG_FILE, nil)
+  if type(cfg) ~= "table" then
+    cfg = { repositories = { { name = "official", url = DEFAULT_REPO } } }
+    writeJson(CONFIG_FILE, cfg)
+  end
+  return cfg
+end
+
+local function loadInstalled()
+  return readJson(DB_FILE, { packages = {} })
+end
+
+local function saveInstalled(db)
+  return writeJson(DB_FILE, db)
+end
+
+local function normaliseUrl(base, path)
+  if path:sub(1, 4) == "http" then return path end
+  if base:sub(-1) ~= "/" then base = base .. "/" end
+  return base .. path:gsub("^/", "")
+end
+
+local function httpGet(url)
+  if not http then return nil, "HTTP API is unavailable" end
+  local ok, response = pcall(http.get, url, { ["User-Agent"] = "CC-PKG/0.1.0" })
+  if not ok or not response then return nil, "request failed: " .. tostring(response) end
+  local body = response.readAll()
+  response.close()
+  return body
+end
+
+local function getIndex(repo)
+  local base = repo.url
+  if base:sub(-1) ~= "/" then base = base .. "/" end
+  local body, err = httpGet(base .. "index.json")
+  if not body then return nil, err end
+  local ok, data = pcall(textutils.unserialiseJSON, body)
+  if not ok or type(data) ~= "table" then return nil, "invalid repository index" end
+  data._base = base
+  return data
+end
+
+local function getManifest(repo, entry)
+  local path = entry.manifest or ("packages/" .. entry.name .. "/package.json")
+  local body, err = httpGet(normaliseUrl(repo._base, path))
+  if not body then return nil, err end
+  local ok, data = pcall(textutils.unserialiseJSON, body)
+  if not ok or type(data) ~= "table" then return nil, "invalid package manifest" end
+  return data
+end
+
+local function findPackage(cfg, name)
+  for _, repo in ipairs(cfg.repositories or {}) do
+    local index = getIndex(repo)
+    if index then
+      local entry = (index.packages or {})[name]
+      if entry then
+        entry.name = entry.name or name
+        entry._repo = repo
+        return entry
+      end
+    end
+  end
+  return nil
+end
+
+local function copyRemote(repoBase, source, destination)
+  local body, err = httpGet(normaliseUrl(repoBase, source))
+  if not body then return false, err end
+  local parent = fs.getDir(destination)
+  if parent ~= "" and not fs.exists(parent) then fs.makeDir(parent) end
+  local h = fs.open(destination, "w")
+  if not h then return false, "cannot write " .. destination end
+  h.write(body)
+  h.close()
+  return true
+end
+
+local function installedPath(path)
+  return "/" .. path:gsub("^/", "")
+end
+
+local function installPackage(name, seen)
+  seen = seen or {}
+  if seen[name] then return true end
+  seen[name] = true
+
+  local cfg = loadConfig()
+  local entry = findPackage(cfg, name)
+  if not entry then return fail("package not found: " .. name) end
+
+  local manifest, err = getManifest(entry._repo, entry)
+  if not manifest then return fail("cannot read manifest: " .. tostring(err)) end
+
+  for _, dependency in ipairs(manifest.dependencies or {}) do
+    if not installPackage(dependency, seen) then return false end
+  end
+
+  local db = loadInstalled()
+  if db.packages[name] and db.packages[name].version == manifest.version then
+    print(name .. " " .. tostring(manifest.version) .. " is already installed.")
+    return true
+  end
+
+  print("Installing " .. name .. " " .. tostring(manifest.version) .. "...")
+
+  for _, file in ipairs(manifest.files or {}) do
+    local source = file.source or file.path
+    local destination = installedPath(file.path or source)
+    local ok, copyErr = copyRemote(entry._repo.url, source, destination)
+    if not ok then return fail("failed to install " .. tostring(file.path or source) .. ": " .. tostring(copyErr)) end
+  end
+
+  db.packages[name] = {
+    version = manifest.version,
+    files = manifest.files or {},
+    repository = entry._repo.name
+  }
+  saveInstalled(db)
+  print("Installed " .. name .. " " .. tostring(manifest.version) .. ".")
+  return true
+end
+
+local function removePackage(name)
+  local db = loadInstalled()
+  local installed = db.packages[name]
+  if not installed then return fail("package is not installed: " .. name) end
+
+  for _, file in ipairs(installed.files or {}) do
+    local path = installedPath(file.path or file.source)
+    if fs.exists(path) then fs.delete(path) end
+  end
+
+  db.packages[name] = nil
+  saveInstalled(db)
+  print("Removed " .. name .. ".")
+  return true
+end
+
+local function searchPackages(query)
+  query = (query or ""):lower()
+  local cfg = loadConfig()
+  local found = 0
+  for _, repo in ipairs(cfg.repositories or {}) do
+    local index = getIndex(repo)
+    if index then
+      for name, entry in pairs(index.packages or {}) do
+        local haystack = (name .. " " .. (entry.description or "")):lower()
+        if query == "" or haystack:find(query, 1, true) then
+          print(name .. " - " .. (entry.description or ""))
+          found = found + 1
+        end
+      end
+    end
+  end
+  if found == 0 then print("No packages found.") end
+end
+
+local function listPackages()
+  local db = loadInstalled()
+  local count = 0
+  for name, data in pairs(db.packages or {}) do
+    print(name .. " " .. tostring(data.version or "?"))
+    count = count + 1
+  end
+  if count == 0 then print("No packages installed.") end
+end
+
+local function repoList()
+  local cfg = loadConfig()
+  for _, repo in ipairs(cfg.repositories or {}) do
+    print((repo.name or "unnamed") .. " - " .. repo.url)
+  end
+end
+
+local function upgrade()
+  local db = loadInstalled()
+  local names = {}
+  for name in pairs(db.packages or {}) do names[#names + 1] = name end
+  for _, name in ipairs(names) do
+    local cfg = loadConfig()
+    local entry = findPackage(cfg, name)
+    if entry then
+      local manifest = getManifest(entry._repo, entry)
+      if manifest and tostring(manifest.version) ~= tostring(db.packages[name].version) then
+        print("Updating " .. name .. "...")
+        installPackage(name)
+      else
+        print(name .. " is up to date.")
+      end
+    end
+  end
+end
+
+local function info(name)
+  local cfg = loadConfig()
+  local entry = findPackage(cfg, name)
+  if not entry then return fail("package not found: " .. name) end
+  local manifest, err = getManifest(entry._repo, entry)
+  if not manifest then return fail(tostring(err)) end
+  print("Name: " .. tostring(manifest.name or name))
+  print("Version: " .. tostring(manifest.version or "?"))
+  print("Author: " .. tostring(manifest.author or "Unknown"))
+  print("Description: " .. tostring(manifest.description or ""))
+  if manifest.dependencies and #manifest.dependencies > 0 then
+    print("Dependencies: " .. table.concat(manifest.dependencies, ", "))
+  end
+end
+
+local function help()
+  print("CC PKG")
+  print("Usage: pkg <command> [arguments]")
+  print("")
+  print("  search <query>   Search repositories")
+  print("  info <package>   Show package information")
+  print("  install <pkg>    Install a package")
+  print("  remove <pkg>     Remove a package")
+  print("  update           Refresh repository metadata")
+  print("  upgrade          Upgrade installed packages")
+  print("  list             List installed packages")
+  print("  repo list        List configured repositories")
+end
+
+ensureDir()
+local args = { ... }
+local command = args[1]
+
+if not command or command == "help" then
+  help()
+elseif command == "search" then
+  searchPackages(table.concat(args, " ", 2))
+elseif command == "info" and args[2] then
+  info(args[2])
+elseif command == "install" and args[2] then
+  installPackage(args[2])
+elseif command == "remove" and args[2] then
+  removePackage(args[2])
+elseif command == "list" then
+  listPackages()
+elseif command == "repo" and args[2] == "list" then
+  repoList()
+elseif command == "update" then
+  print("Repository metadata is fetched on demand. No local index cache is required yet.")
+elseif command == "upgrade" then
+  upgrade()
+else
+  help()
+end
