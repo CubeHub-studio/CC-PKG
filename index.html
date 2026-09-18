@@ -1,4 +1,4 @@
--- CC PKG 0.5.0
+-- CC PKG 0.5.1
 -- Version names containing "pocket" are pocket-only.
 -- All other version names are for regular computers.
 
@@ -7,9 +7,9 @@ local CONFIG_FILE=CONFIG_DIR.."/config.json"
 local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
-local DEFAULT_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/"
-local PKG_VERSION="0.5.0"
-local PKG_SOURCE=DEFAULT_REPO.."pkg"
+local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
+local PKG_VERSION="0.5.1"
+local PKG_SOURCE=DEFAULT_REPO
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
 
@@ -168,7 +168,68 @@ local function info(name)
   print("Manifest: "..mp)
 end
 local function repos()
-  for _,r in ipairs(config().repositories or {}) do print((r.name or "unnamed").." - "..r.url) end
+  local c=config()
+  local list=c.repositories or {}
+  if #list==0 then
+    print("No repositories configured.")
+    return
+  end
+  for i,r in ipairs(list) do
+    print((r.name or "unnamed").." - "..tostring(r.url))
+  end
+end
+
+local function repoAdd(repoUrl)
+  if not repoUrl or repoUrl=="" then return fail("repository URL is required") end
+  if not repoUrl:match("^https?://") then return fail("repository URL must start with http:// or https://") end
+  local c=config()
+  c.repositories=c.repositories or {}
+  if repoUrl:sub(-1)~="/" then repoUrl=repoUrl.."/" end
+  local metaUrl=repoUrl.."repometadata.json"
+  local meta,e=get(metaUrl)
+  if not meta then return fail("could not download repometadata.json: "..tostring(e)) end
+  local ok,data=pcall(textutils.unserialiseJSON,meta)
+  if not ok or type(data)~="table" or type(data.name)~="string" or data.name=="" then return fail("invalid repometadata.json: missing repository name") end
+  local name=data.name
+  for _,r in ipairs(c.repositories) do if r.name==name then return fail("repository already exists: "..name) end end
+  local test={name=name,url=repoUrl}
+  local i,ie=index(test)
+  if not i then return fail("repository check failed: "..tostring(ie)) end
+  c.repositories[#c.repositories+1]=test
+  if not writeJson(CONFIG_FILE,c) then return fail("could not save repository configuration") end
+  print("Added repository "..name.." - "..repoUrl)
+  return true
+end
+
+local function repoRemove(name)
+  if not name or name=="" then return fail("repository name is required") end
+  local c=config()
+  local list=c.repositories or {}
+  for i,r in ipairs(list) do
+    if r.name==name then
+      if name=="official" then return fail("cannot remove the official repository") end
+      table.remove(list,i)
+      if not writeJson(CONFIG_FILE,c) then return fail("could not save repository configuration") end
+      print("Removed repository "..name..".")
+      return true
+    end
+  end
+  return fail("repository not found: "..name)
+end
+
+local function repoUpdate()
+  local c=config()
+  local count=0
+  for _,r in ipairs(c.repositories or {}) do
+    local i,e=index(r)
+    if i then
+      print((r.name or "unnamed").." - OK")
+      count=count+1
+    else
+      print((r.name or "unnamed").." - ERROR: "..tostring(e))
+    end
+  end
+  print("Checked "..count.." repository/repositories successfully.")
 end
 local function selfUpdate()
   print("Checking for CC PKG updates...")
@@ -183,12 +244,14 @@ local function selfUpdate()
   local downloaded=check.readAll(); check.close()
   if downloaded=="" then fs.delete(tmp); return fail("downloaded pkg is empty") end
   local old="/pkg"
-  if fs.exists(old) then fs.delete(old) end
-  local ok=fs.move(tmp,old)
-  if not ok then
+  local target=fs.open(old,"w")
+  if not target then
     if fs.exists(tmp) then fs.delete(tmp) end
-    return fail("could not replace /pkg")
+    return fail("could not open /pkg for updating")
   end
+  target.write(downloaded)
+  target.close()
+  fs.delete(tmp)
   print("CC PKG updated to the latest version.")
   print("Run pkg help to load the updated client.")
   return true
@@ -219,7 +282,11 @@ local function help()
   print("  update           Refresh repository metadata")
   print("  upgrade          Upgrade installed packages")
   print("  list             List installed packages")
+  print("  self-update      Update CC PKG itself")
   print("  repo list        List repositories")
+  print("  repo add <url>          Add a package repository")
+  print("  repo remove <name>       Remove a package repository")
+  print("  repo update              Check configured repositories")
 end
 ensureDir()
 local a={...}; local c=a[1]
@@ -230,6 +297,9 @@ elseif c=="install" and a[2] then install(a[2])
 elseif c=="remove" and a[2] then remove(a[2])
 elseif c=="list" then list()
 elseif c=="repo" and a[2]=="list" then repos()
+elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
+elseif c=="repo" and a[2]=="remove" and a[3] then repoRemove(a[3])
+elseif c=="repo" and a[2]=="update" then repoUpdate()
 elseif c=="update" then print("Repository metadata is fetched on demand.")
 elseif c=="self-update" then selfUpdate()
 elseif c=="upgrade" then upgrade()
