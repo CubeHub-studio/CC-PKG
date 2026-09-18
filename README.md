@@ -92,8 +92,14 @@ CC PKG stores its state in `/.ccpkg/`:
 - `pkg.log` — normal activity log
 - `error.log` — errors
 
-## Repository
+## Community repositories
 
-The official CC PKG repository is hosted at GitHub and served through the free GitHub Pages installer endpoint above. Package metadata is served from `index.json`, while package manifests and files are stored in the repository or referenced by HTTP source URLs.
+We kindly ask for you to make your own PKG repositories. Thanks for helping PKG grow! Go to [Repository Documentation](docs/repository.md) for more info.
 
-See `docs/package-format.md`, `docs/repository.md`, and `docs/architecture.md`.
+Users can add a community repository with:
+
+```text
+pkg repo add https://example.com/ccpkg/
+```
+
+Repository names are provided by each repository's `repometadata.json` file.
