@@ -1,4 +1,4 @@
--- CC PKG 0.5.1
+-- CC PKG 0.6.0
 -- Version names containing "pocket" are pocket-only.
 -- All other version names are for regular computers.
 
@@ -8,7 +8,7 @@ local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
-local PKG_VERSION="0.5.1"
+local PKG_VERSION="0.6.0"
 local PKG_SOURCE=DEFAULT_REPO
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
@@ -45,6 +45,72 @@ local function config()
 end
 local function db() return readJson(DB_FILE,{packages={}}) end
 local function saveDb(d) return writeJson(DB_FILE,d) end
+local BACKUP_DIR=CONFIG_DIR.."/backups"
+
+local function safePath(path)
+  path=tostring(path or ""):gsub("^/","")
+  if path=="" or path:find("%.%.",1,true) then return nil end
+  if path:sub(1,#CONFIG_DIR-1)==CONFIG_DIR:sub(2) then return nil end
+  return "/"..path
+end
+
+local function backupFile(path,backupRoot)
+  local p=safePath(path)
+  if not p or not fs.exists(p) or fs.isDir(p) then return true end
+  local rel=p:gsub("^/","")
+  local dest=backupRoot.."/"..rel
+  local dir=fs.getDir(dest)
+  if dir~="" and not fs.exists(dir) then fs.makeDir(dir) end
+  local inFile=fs.open(p,"rb")
+  if not inFile then return false end
+  local data=inFile.readAll(); inFile.close()
+  local out=fs.open(dest,"wb")
+  if not out then return false end
+  out.write(data); out.close()
+  return true
+end
+
+local function newBackupRoot(name)
+  ensureDir()
+  if not fs.exists(BACKUP_DIR) then fs.makeDir(BACKUP_DIR) end
+  local stamp=tostring(os.epoch and os.epoch("utc") or os.time())
+  local root=BACKUP_DIR.."/"..tostring(name):gsub("[^%w%._%-]","_").."_"..stamp
+  fs.makeDir(root)
+  return root
+end
+
+local function backupPackageFiles(name,files)
+  local root=newBackupRoot(name)
+  local count=0
+  for _,f in ipairs(files or {}) do
+    local path=f.path or f.source
+    if fs.exists("/"..tostring(path):gsub("^/","")) then
+      if not backupFile(path,root) then return nil end
+      count=count+1
+    end
+  end
+  if count==0 then fs.delete(root); return nil end
+  return root
+end
+
+local function restoreBackup(root)
+  if not root or not fs.exists(root) then return false end
+  local function copyTree(src,dst)
+    if fs.isDir(src) then
+      if not fs.exists(dst) then fs.makeDir(dst) end
+      for _,n in ipairs(fs.list(src)) do
+        if not copyTree(src.."/"..n,dst.."/"..n) then return false end
+      end
+      return true
+    end
+    local h=fs.open(src,"rb"); if not h then return false end
+    local data=h.readAll(); h.close()
+    local d=fs.getDir(dst); if d~="" and not fs.exists(d) then fs.makeDir(d) end
+    local o=fs.open(dst,"wb"); if not o then return false end
+    o.write(data); o.close(); return true
+  end
+  return copyTree(root,"/")
+end
 local function url(base,path)
   if not path then return nil end
   if path:sub(1,4)=="http" then return path end
@@ -118,23 +184,37 @@ local function install(name,seen)
   local d=db(); local old=d.packages[name]
   if old and old.version==m.version and old.target==computerType() then print(name.." "..m.version.." is already installed.") return true end
   print("Installing "..name.." "..tostring(m.version).." for "..computerType().."...")
+  local backup=backupPackageFiles(name,m.files)
+  if backup then print("Backup created: "..backup) end
   for _,f in ipairs(m.files or {}) do
     local source=f.source or f.path
     local path=f.path or f.source
     local s,ce=get(url(e._repo._base or e._repo.url,source))
     if not s then return fail("failed to install "..tostring(path)..": "..tostring(ce)) end
     local p=fs.getDir(path); if p~="" and not fs.exists(p) then fs.makeDir(p) end
-    local h=fs.open("/"..path:gsub("^/",""),"w")
-    if not h then return fail("cannot write "..path) end
+    local safe=safePath(path)
+    if not safe then return fail("unsafe package path: "..tostring(path)) end
+    local h=fs.open(safe,"w")
+    if not h then
+      if backup then restoreBackup(backup) end
+      return fail("cannot write "..path)
+    end
     h.write(s); h.close()
   end
-  d.packages[name]={version=m.version,target=computerType(),files=m.files or {},repository=e._repo.name}
+  d.packages[name]={version=m.version,target=computerType(),files=m.files or {},repository=e._repo.name,backup=backup}
+  if backup then d.packages[name].backup=backup end
   saveDb(d); print("Installed "..name.." "..tostring(m.version).."."); return true
 end
 local function remove(name)
   logLine(LOG_FILE,"REMOVE "..tostring(name))
   local d=db(); local p=d.packages[name]; if not p then return fail("package is not installed: "..name) end
-  for _,f in ipairs(p.files or {}) do local x="/"..(f.path or f.source):gsub("^/",""); if fs.exists(x) then fs.delete(x) end end
+  local backup=backupPackageFiles(name,p.files)
+  if backup then print("Backup created: "..backup) end
+  for _,f in ipairs(p.files or {}) do
+    local x=safePath(f.path or f.source)
+    if x and fs.exists(x) then fs.delete(x) end
+  end
+  p.backup=backup
   d.packages[name]=nil; saveDb(d); print("Removed "..name..".")
 end
 local function search(q)
@@ -231,6 +311,33 @@ local function repoUpdate()
   end
   print("Checked "..count.." repository/repositories successfully.")
 end
+local function checkForUpdate()
+  local api="https://api.github.com/repos/CubeHub-studio/CC-PKG/releases/latest"
+  local s=get(api)
+  if not s then return false end
+  local ok,data=pcall(textutils.unserialiseJSON,s)
+  if not ok or type(data)~="table" or type(data.tag_name)~="string" then return false end
+  local latest=data.tag_name:gsub("^v","")
+  local function ver(v)
+    local a={}
+    for x in tostring(v):gmatch("%d+") do a[#a+1]=tonumber(x) end
+    return (a[1] or 0)*1000000+(a[2] or 0)*1000+(a[3] or 0)
+  end
+  if ver(latest)>ver(PKG_VERSION) then
+    print("CC PKG: Update available! "..PKG_VERSION.." -> "..latest)
+    print("Run pkg self-update to update.")
+    return true
+  end
+  return false
+end
+
+local function restorePackage(name) 
+  local d=db(); local p=d.packages[name]
+  if not p or not p.backup then return fail("no backup available for "..name) end
+  if restoreBackup(p.backup) then print("Restored "..name.." from backup.") return true end
+  return fail("could not restore backup for "..name)
+end
+
 local function selfUpdate()
   print("Checking for CC PKG updates...")
   local s,e=get(PKG_SOURCE)
@@ -283,6 +390,7 @@ local function help()
   print("  upgrade          Upgrade installed packages")
   print("  list             List installed packages")
   print("  self-update      Update CC PKG itself")
+  print("  restore <pkg>    Restore the latest package backup")
   print("  repo list        List repositories")
   print("  repo add <url>          Add a package repository")
   print("  repo remove <name>       Remove a package repository")
@@ -290,11 +398,13 @@ local function help()
 end
 ensureDir()
 local a={...}; local c=a[1]
+if not c then checkForUpdate() end
 if not c or c=="help" then help()
 elseif c=="search" then search(table.concat(a," ",2))
 elseif c=="info" and a[2] then info(a[2])
 elseif c=="install" and a[2] then install(a[2])
 elseif c=="remove" and a[2] then remove(a[2])
+elseif c=="restore" and a[2] then restorePackage(a[2])
 elseif c=="list" then list()
 elseif c=="repo" and a[2]=="list" then repos()
 elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
