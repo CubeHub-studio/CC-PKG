@@ -1,37 +1,24 @@
 {
   "name": "CC PKG Official Repository",
-  "version": 2,
+  "version": 3,
   "packages": {
     "example": {
       "name": "example",
-      "description": "Example package with computer-specific versions",
+      "description": "Example package with version-name hardware targeting",
       "versions": {
-        "1.0.0": {
-          "manifest": "packages/example/1.0.0/package.json",
-          "targets": {
-            "computer": true
-          }
-        },
-        "1.1.0": {
-          "manifest": "packages/example/1.1.0/package.json",
-          "targets": {
-            "computer": true,
-            "pocket": true
-          }
-        }
+        "v1.0 computer": {"manifest": "packages/example/1.0.0/package.json"},
+        "v1.1 mini": {"manifest": "packages/example/1.1.0/package.json"},
+        "v1.2 advance": {"manifest": "packages/example/1.2.0/package.json"},
+        "v1.3 pocket": {"manifest": "packages/example/1.3.0/package.json"}
       }
     },
     "moon-bios": {
       "name": "moon-bios",
       "description": "Moon BIOS for CC:Tweaked",
       "versions": {
-        "1.3.0": {
-          "manifest": "packages/moon-bios/1.3.0/package.json",
-          "targets": {
-            "computer": true,
-            "pocket": true
-          }
-        }
+        "v1.2 mini": {"manifest": "packages/moon-bios/1.2-mini/package.json"},
+        "v1.2 advance": {"manifest": "packages/moon-bios/1.2-advance/package.json"},
+        "v1.3 pocket": {"manifest": "packages/moon-bios/1.3-pocket/package.json"}
       }
     }
   }
