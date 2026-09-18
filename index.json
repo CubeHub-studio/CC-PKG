@@ -1,6 +1,8 @@
 {
   "name":"CC PKG Official Repository",
   "version":4,
+  "installer":"https://cubehub-studio.github.io/CC-PKG/",
+  "repository":"https://cubehub-studio.github.io/CC-PKG/",
   "packages":{
     "example":{
       "name":"example",
