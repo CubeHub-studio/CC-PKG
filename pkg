@@ -70,7 +70,7 @@ local function chooseVersion(entry)
     local compatible=(target=="pocket" and pocketVersion) or (target=="computer" and not pocketVersion)
     if compatible then
       local n=versionNumber(v)
-      if not bestNum or n>bestNum then best,bestNum=v,n end
+      if not bestNum or n>bestNum or (n==bestNum and tostring(v)>tostring(best)) then best,bestNum=v,n end
     end
   end
   if not best then return nil,"no version supports this "..target.." computer" end
