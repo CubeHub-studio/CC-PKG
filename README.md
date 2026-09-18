@@ -95,6 +95,7 @@ CC PKG stores its state in `/.ccpkg/`:
 ## Community repositories
 
 We kindly ask for you to make your own PKG repositories. Thanks for helping PKG grow! Go to [Repository Documentation](docs/repository.md) for more info.
+We are NOT responsible for what others make on their repository. Please be aware that we cannot control what others do and that the ```PKG pkg repo add ``` command it for PKG to be more open.
 
 Users can add a community repository with:
 
