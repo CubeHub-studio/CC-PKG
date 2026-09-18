@@ -1,0 +1,8 @@
+{
+  "name":"example",
+  "version":"v1.3 pocket",
+  "description":"Example CC PKG package for pocket computers",
+  "author":"CubeHub Studio",
+  "dependencies":[],
+  "files":[{"source":"packages/example/1.3.0/example.lua","path":"bin/example"}]
+}
