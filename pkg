@@ -1,6 +1,6 @@
--- CC PKG 0.3.0
--- CC:Tweaked 1.113.x+
--- Supports multiple package versions and target-specific versions.
+-- CC PKG 0.4.0
+-- Version names containing "pocket" are pocket-only.
+-- All other version names are for regular computers.
 
 local CONFIG_DIR="/.ccpkg"
 local CONFIG_FILE=CONFIG_DIR.."/config.json"
@@ -34,7 +34,7 @@ local function url(base,path)
 end
 local function get(u)
   if not http then return nil,"HTTP API unavailable" end
-  local ok,r=pcall(http.get,u,{["User-Agent"]="CC-PKG/0.3.0"})
+  local ok,r=pcall(http.get,u,{["User-Agent"]="CC-PKG/0.4.0"})
   if not ok or not r then return nil,"request failed: "..tostring(r) end
   local s=r.readAll(); r.close(); return s
 end
@@ -55,6 +55,7 @@ local function manifest(repo,entry,version)
   return v,p
 end
 local function computerType() return pocket and "pocket" or "computer" end
+local function isPocketVersion(v) return tostring(v):lower():find("pocket",1,true) ~= nil end
 local function versionNumber(v)
   local a={}
   for x in tostring(v):gmatch("%d+") do a[#a+1]=tonumber(x) end
@@ -62,15 +63,17 @@ local function versionNumber(v)
 end
 local function chooseVersion(entry)
   if type(entry.versions)~="table" then return entry,nil end
-  local target=computerType(); local best,bestNum
-  for v,data in pairs(entry.versions) do
-    local t=data.targets or {}
-    if t[target] or t.all then
+  local target=computerType()
+  local best,bestNum
+  for v in pairs(entry.versions) do
+    local pocketVersion=isPocketVersion(v)
+    local compatible=(target=="pocket" and pocketVersion) or (target=="computer" and not pocketVersion)
+    if compatible then
       local n=versionNumber(v)
       if not bestNum or n>bestNum then best,bestNum=v,n end
     end
   end
-  if not best then return nil,"no published version supports this "..target.." computer" end
+  if not best then return nil,"no version supports this "..target.." computer" end
   entry._selectedVersion=best
   return entry,best
 end
@@ -84,46 +87,32 @@ local function find(name)
   end
   return nil,"package not found or unsupported on this computer"
 end
-local function targetFilePath(manifestPath)
-  return manifestPath:gsub("[^/]+$","").."targets.json"
-end
-local function validateTarget(repo,manifestPath,expectedVersion)
-  local s,e=get(url(repo._base,targetFilePath(manifestPath)))
-  if not s then return false,"missing targets.json: "..tostring(e) end
-  local ok,t=pcall(textutils.unserialiseJSON,s)
-  if not ok or type(t)~="table" then return false,"invalid targets.json" end
-  if tostring(t.version)~=tostring(expectedVersion) then return false,"targets.json version does not match manifest" end
-  local targets=t.targets or {}
-  if not (targets[computerType()] or targets.all) then return false,"this version does not support "..computerType().." computers" end
-  return true
-end
-local function copy(base,src,dst)
-  local s,e=get(url(base,src)); if not s then return false,e end
-  local p=fs.getDir(dst); if p~="" and not fs.exists(p) then fs.makeDir(p) end
-  local h=fs.open(dst,"w"); if not h then return false,"cannot write "..dst end
-  h.write(s); h.close(); return true
-end
-local function dest(p) return "/"..p:gsub("^/","") end
 local function install(name,seen)
   seen=seen or {}; if seen[name] then return true end; seen[name]=true
   local e,v=find(name); if not e then return fail(v) end
   local m,mp,er=manifest(e._repo,e,v); if not m then return fail(mp) end
-  local targetOk,targetErr=validateTarget(e._repo,mp,m.version)
-  if not targetOk then return fail(targetErr) end
+  if computerType()=="pocket" and not isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is not a pocket version") end
+  if computerType()=="computer" and isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is pocket-only") end
   for _,d in ipairs(m.dependencies or {}) do if not install(d,seen) then return false end end
   local d=db(); local old=d.packages[name]
   if old and old.version==m.version and old.target==computerType() then print(name.." "..m.version.." is already installed.") return true end
   print("Installing "..name.." "..tostring(m.version).." for "..computerType().."...")
   for _,f in ipairs(m.files or {}) do
-    local ok,ce=copy(e._repo._base or e._repo.url,f.source or f.path,dest(f.path or f.source))
-    if not ok then return fail("failed to install "..tostring(f.path or f.source)..": "..tostring(ce)) end
+    local source=f.source or f.path
+    local path=f.path or f.source
+    local s,ce=get(url(e._repo._base or e._repo.url,source))
+    if not s then return fail("failed to install "..tostring(path)..": "..tostring(ce)) end
+    local p=fs.getDir(path); if p~="" and not fs.exists(p) then fs.makeDir(p) end
+    local h=fs.open("/"..path:gsub("^/",""),"w")
+    if not h then return fail("cannot write "..path) end
+    h.write(s); h.close()
   end
   d.packages[name]={version=m.version,target=computerType(),files=m.files or {},repository=e._repo.name}
   saveDb(d); print("Installed "..name.." "..tostring(m.version).."."); return true
 end
 local function remove(name)
   local d=db(); local p=d.packages[name]; if not p then return fail("package is not installed: "..name) end
-  for _,f in ipairs(p.files or {}) do local x=dest(f.path or f.source); if fs.exists(x) then fs.delete(x) end end
+  for _,f in ipairs(p.files or {}) do local x="/"..(f.path or f.source):gsub("^/",""); if fs.exists(x) then fs.delete(x) end end
   d.packages[name]=nil; saveDb(d); print("Removed "..name..".")
 end
 local function search(q)
@@ -133,7 +122,8 @@ local function search(q)
       local h=(name.." "..(e.description or "")):lower()
       if q=="" or h:find(q,1,true) then
         local count=0; for _ in pairs(e.versions or {}) do count=count+1 end
-        print(name.." - "..(e.description or "").." ("..count.." versions)"); n=n+1
+        print(name.." - "..(e.description or "").." ("..count.." versions)")
+        n=n+1
       end
     end end
   end
@@ -147,17 +137,20 @@ end
 local function info(name)
   local e,v=find(name); if not e then return fail(v) end
   local m,mp=manifest(e._repo,e,v); if not m then return fail(mp) end
-  print("Name: "..tostring(m.name or name)); print("Version: "..tostring(m.version or v))
-  print("Target: "..computerType()); print("Author: "..tostring(m.author or "Unknown"))
+  print("Name: "..tostring(m.name or name))
+  print("Version: "..tostring(m.version or v))
+  print("Target: "..computerType())
+  print("Pocket version: "..tostring(isPocketVersion(m.version or v)))
+  print("Author: "..tostring(m.author or "Unknown"))
   print("Description: "..tostring(m.description or ""))
   print("Manifest: "..mp)
-  if m.dependencies and #m.dependencies>0 then print("Dependencies: "..table.concat(m.dependencies,", ")) end
 end
 local function repos()
   for _,r in ipairs(config().repositories or {}) do print((r.name or "unnamed").." - "..r.url) end
 end
 local function upgrade()
-  local d=db(); local names={}; for n in pairs(d.packages or {}) do names[#names+1]=n end
+  local d=db(); local names={}
+  for n in pairs(d.packages or {}) do names[#names+1]=n end
   for _,n in ipairs(names) do
     local e,v=find(n)
     if e then
@@ -168,7 +161,10 @@ local function upgrade()
   end
 end
 local function help()
-  print("CC PKG 0.3.0")
+  print("CC PKG 0.4.0")
+  print("Version target rule:")
+  print("  * Versions containing 'pocket' = pocket computer")
+  print("  * All other versions = regular computer")
   print("  search <query>   Search packages")
   print("  info <package>   Show selected version/target")
   print("  install <pkg>    Install highest compatible version")
