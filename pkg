@@ -1,4 +1,4 @@
--- CC PKG 0.4.0
+-- CC PKG 0.5.0
 -- Version names containing "pocket" are pocket-only.
 -- All other version names are for regular computers.
 
@@ -8,6 +8,8 @@ local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/"
+local PKG_VERSION="0.5.0"
+local PKG_SOURCE=DEFAULT_REPO.."pkg"
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
 
@@ -168,6 +170,29 @@ end
 local function repos()
   for _,r in ipairs(config().repositories or {}) do print((r.name or "unnamed").." - "..r.url) end
 end
+local function selfUpdate()
+  print("Checking for CC PKG updates...")
+  local s,e=get(PKG_SOURCE)
+  if not s then return fail("failed to download latest pkg: "..tostring(e)) end
+  local tmp="/.ccpkg/pkg.new"
+  local h=fs.open(tmp,"w")
+  if not h then return fail("cannot create temporary update file") end
+  h.write(s); h.close()
+  local check=fs.open(tmp,"r")
+  if not check then return fail("cannot verify downloaded pkg") end
+  local downloaded=check.readAll(); check.close()
+  if downloaded=="" then fs.delete(tmp); return fail("downloaded pkg is empty") end
+  local old="/pkg"
+  if fs.exists(old) then fs.delete(old) end
+  local ok=fs.move(tmp,old)
+  if not ok then
+    if fs.exists(tmp) then fs.delete(tmp) end
+    return fail("could not replace /pkg")
+  end
+  print("CC PKG updated to the latest version.")
+  print("Run pkg help to load the updated client.")
+  return true
+end
 local function upgrade()
   local d=db(); local names={}
   for n in pairs(d.packages or {}) do names[#names+1]=n end
@@ -181,7 +206,7 @@ local function upgrade()
   end
 end
 local function help()
-  print("CC PKG 0.4.0")
+  print("CC PKG "..PKG_VERSION)
   print("Logs: /.ccpkg/pkg.log")
   print("Errors: /.ccpkg/error.log")
   print("Version target rule:")
@@ -206,5 +231,6 @@ elseif c=="remove" and a[2] then remove(a[2])
 elseif c=="list" then list()
 elseif c=="repo" and a[2]=="list" then repos()
 elseif c=="update" then print("Repository metadata is fetched on demand.")
+elseif c=="self-update" then selfUpdate()
 elseif c=="upgrade" then upgrade()
 else help() end
