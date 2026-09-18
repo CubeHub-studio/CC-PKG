@@ -1,0 +1,11 @@
+{
+  "name":"moon-bios",
+  "version":"v1.3",
+  "description":"Moon BIOS v1.3 standard release for regular computers",
+  "author":"CubeHub Studio",
+  "dependencies":[],
+  "files":[
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3/startup","path":"startup"},
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3/updatemoonbios","path":"updatemoonbios"}
+  ]
+}
