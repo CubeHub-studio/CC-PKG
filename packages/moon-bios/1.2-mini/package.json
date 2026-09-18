@@ -1,11 +1,11 @@
 {
-  "name": "moon-bios",
-  "version": "v1.2 mini",
-  "description": "Moon BIOS for regular computers - Mini build",
-  "author": "CubeHub Studio",
-  "dependencies": [],
-  "files": [
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-mini/startup", "path": "startup"},
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-mini/updatemoonbios", "path": "updatemoonbios"}
+  "name":"moon-bios",
+  "version":"v1.2 mini",
+  "description":"Moon BIOS 1.2 Mini for regular computers",
+  "author":"CubeHub Studio",
+  "dependencies":[],
+  "files":[
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-mini/startup","path":"startup"},
+    {"source":"https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.2-mini/updatemoonbios","path":"updatemoonbios"}
   ]
 }
