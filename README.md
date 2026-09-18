@@ -2,21 +2,27 @@
 
 CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects versions based on the computer type, tracks installed packages, and supports dependencies.
 
-## Install CC PKG
+## Free Installer
 
-On a CC:Tweaked computer with HTTP enabled:
+CC PKG is hosted for free with GitHub Pages.
+
+Install CC PKG directly on a CC:Tweaked computer with HTTP enabled:
 
 ```lua
-wget https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/pkg pkg
+wget https://cubehub-studio.github.io/CC-PKG/ pkg
 ```
+
+The installer endpoint is:
+
+**https://cubehub-studio.github.io/CC-PKG/**
+
+The downloaded client is installed as `/pkg`.
 
 Then run:
 
 ```text
 pkg help
 ```
-
-The client is installed as `/pkg`.
 
 ## Update CC PKG itself
 
@@ -26,13 +32,13 @@ CC PKG 0.5.0 includes a self-updater. Run:
 pkg self-update
 ```
 
-It downloads the current `pkg` client from the official repository and replaces `/pkg`. Start `pkg` again after the update so the newly downloaded client is loaded.
+It downloads the current `pkg` client from the official repository and replaces `/pkg`.
 
 If you are using an older CC PKG version that does not have `self-update`, reinstall it with:
 
 ```lua
 delete pkg
-wget https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/pkg pkg
+wget https://cubehub-studio.github.io/CC-PKG/ pkg
 ```
 
 ## Package commands
@@ -88,6 +94,6 @@ CC PKG stores its state in `/.ccpkg/`:
 
 ## Repository
 
-The default official repository is the CC-PKG GitHub repository. Package metadata is served from `index.json`, while package manifests and files are stored in the repository or referenced by HTTP source URLs.
+The official CC PKG repository is hosted at GitHub and served through the free GitHub Pages installer endpoint above. Package metadata is served from `index.json`, while package manifests and files are stored in the repository or referenced by HTTP source URLs.
 
 See `docs/package-format.md`, `docs/repository.md`, and `docs/architecture.md`.
