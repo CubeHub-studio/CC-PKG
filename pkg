@@ -44,7 +44,9 @@ end
 local function db() return readJson(DB_FILE,{packages={}}) end
 local function saveDb(d) return writeJson(DB_FILE,d) end
 local function url(base,path)
+  if not path then return nil end
   if path:sub(1,4)=="http" then return path end
+  base=base or DEFAULT_REPO
   if base:sub(-1)~="/" then base=base.."/" end
   return base..path:gsub("^/","")
 end
