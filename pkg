@@ -179,19 +179,22 @@ local function repos()
   end
 end
 
-local function repoAdd(name,repoUrl)
-  if not name or name=="" then return fail("repository name is required") end
+local function repoAdd(repoUrl)
   if not repoUrl or repoUrl=="" then return fail("repository URL is required") end
   if not repoUrl:match("^https?://") then return fail("repository URL must start with http:// or https://") end
   local c=config()
   c.repositories=c.repositories or {}
-  for _,r in ipairs(c.repositories) do
-    if r.name==name then return fail("repository already exists: "..name) end
-  end
   if repoUrl:sub(-1)~="/" then repoUrl=repoUrl.."/" end
+  local metaUrl=repoUrl.."repometadata.json"
+  local meta,e=get(metaUrl)
+  if not meta then return fail("could not download repometadata.json: "..tostring(e)) end
+  local ok,data=pcall(textutils.unserialiseJSON,meta)
+  if not ok or type(data)~="table" or type(data.name)~="string" or data.name=="" then return fail("invalid repometadata.json: missing repository name") end
+  local name=data.name
+  for _,r in ipairs(c.repositories) do if r.name==name then return fail("repository already exists: "..name) end end
   local test={name=name,url=repoUrl}
-  local i,e=index(test)
-  if not i then return fail("repository check failed: "..tostring(e)) end
+  local i,ie=index(test)
+  if not i then return fail("repository check failed: "..tostring(ie)) end
   c.repositories[#c.repositories+1]=test
   if not writeJson(CONFIG_FILE,c) then return fail("could not save repository configuration") end
   print("Added repository "..name.." - "..repoUrl)
@@ -279,7 +282,7 @@ local function help()
   print("  list             List installed packages")
   print("  self-update      Update CC PKG itself")
   print("  repo list        List repositories")
-  print("  repo add <name> <url>    Add a package repository")
+  print("  repo add <url>          Add a package repository")
   print("  repo remove <name>       Remove a package repository")
   print("  repo update              Check configured repositories")
 end
@@ -292,7 +295,7 @@ elseif c=="install" and a[2] then install(a[2])
 elseif c=="remove" and a[2] then remove(a[2])
 elseif c=="list" then list()
 elseif c=="repo" and a[2]=="list" then repos()
-elseif c=="repo" and a[2]=="add" and a[3] and a[4] then repoAdd(a[3],a[4])
+elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
 elseif c=="repo" and a[2]=="remove" and a[3] then repoRemove(a[3])
 elseif c=="repo" and a[2]=="update" then repoUpdate()
 elseif c=="update" then print("Repository metadata is fetched on demand.")
