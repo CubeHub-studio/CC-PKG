@@ -5,7 +5,7 @@
   "author": "CubeHub Studio",
   "dependencies": [],
   "files": [
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3-pocket/startup", "path": "startup"},
-    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3-pocket/updatemoonbios", "path": "updatemoonbios"}
+    {"source": "https://raw.githubusercontent.com/CubeHub-studio/CC-Moon-BIOS/main/versions/v1.3-pocket/startup", "path": "startup"},
+    {"source": "https://raw.githubusercontent.com/CubeHub-studio/CC-Moon-BIOS/main/versions/v1.3-pocket/updatemoonbios", "path": "updatemoonbios"}
   ]
 }
