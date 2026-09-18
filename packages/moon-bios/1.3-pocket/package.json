@@ -1,0 +1,11 @@
+{
+  "name": "moon-bios",
+  "version": "v1.3 pocket",
+  "description": "Moon BIOS for pocket computers",
+  "author": "CubeHub Studio",
+  "dependencies": [],
+  "files": [
+    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3-pocket/startup", "path": "startup"},
+    {"source": "https://cubehub-studio.github.io/CC-Moon-BIOS/versions/v1.3-pocket/updatemoonbios", "path": "updatemoonbios"}
+  ]
+}
