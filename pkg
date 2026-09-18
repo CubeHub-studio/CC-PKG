@@ -65,7 +65,7 @@ local function manifest(repo,entry,version)
   local p
   if version and entry.versions and entry.versions[version] then p=entry.versions[version].manifest end
   p=p or entry.manifest or ("packages/"..entry.name.."/package.json")
-  local s,e=get(url(repo._base,p)); if not s then return nil,e end
+  local s,e=get(url(repo._base or repo.url,p)); if not s then return nil,e end
   local ok,v=pcall(textutils.unserialiseJSON,s)
   if not ok or type(v)~="table" then return nil,"invalid package manifest" end
   return v,p
