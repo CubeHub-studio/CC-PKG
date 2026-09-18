@@ -1,0 +1,8 @@
+{
+  "name":"example",
+  "version":"v1.2 advance",
+  "description":"Example CC PKG package for regular computers",
+  "author":"CubeHub Studio",
+  "dependencies":[],
+  "files":[{"source":"packages/example/1.2.0/example.lua","path":"bin/example"}]
+}
