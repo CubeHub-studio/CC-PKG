@@ -1,0 +1,1 @@
+{"name":"example","version":"1.0.0","description":"Example package","author":"CubeHub Studio","dependencies":[],"files":[{"source":"packages/example/1.0.0/example.lua","path":"bin/example"}]}
