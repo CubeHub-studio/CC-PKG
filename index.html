@@ -1,0 +1,236 @@
+-- CC PKG 0.5.0
+-- Version names containing "pocket" are pocket-only.
+-- All other version names are for regular computers.
+
+local CONFIG_DIR="/.ccpkg"
+local CONFIG_FILE=CONFIG_DIR.."/config.json"
+local DB_FILE=CONFIG_DIR.."/installed.json"
+local LOG_FILE=CONFIG_DIR.."/pkg.log"
+local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
+local DEFAULT_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG/main/"
+local PKG_VERSION="0.5.0"
+local PKG_SOURCE=DEFAULT_REPO.."pkg"
+
+local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
+
+local function logLine(path,m)
+  ensureDir()
+  local h=fs.open(path,"a")
+  if h then
+    h.writeLine(os.date("%Y-%m-%d %H:%M:%S").." | "..tostring(m))
+    h.close()
+  end
+end
+local function fail(m)
+  logLine(ERROR_LOG_FILE,m)
+  logLine(LOG_FILE,"ERROR: "..m)
+  printError("CC PKG: "..m)
+  return false
+end
+local function readJson(p,f)
+  if not fs.exists(p) then return f end
+  local h=fs.open(p,"r"); if not h then return f end
+  local s=h.readAll(); h.close()
+  local ok,v=pcall(textutils.unserialiseJSON,s)
+  return ok and v or f
+end
+local function writeJson(p,v)
+  ensureDir(); local h=fs.open(p,"w"); if not h then return false end
+  h.write(textutils.serialiseJSON(v)); h.close(); return true
+end
+local function config()
+  local c=readJson(CONFIG_FILE,nil)
+  if type(c)~="table" then c={repositories={{name="official",url=DEFAULT_REPO}}}; writeJson(CONFIG_FILE,c) end
+  return c
+end
+local function db() return readJson(DB_FILE,{packages={}}) end
+local function saveDb(d) return writeJson(DB_FILE,d) end
+local function url(base,path)
+  if not path then return nil end
+  if path:sub(1,4)=="http" then return path end
+  base=base or DEFAULT_REPO
+  if base:sub(-1)~="/" then base=base.."/" end
+  return base..path:gsub("^/","")
+end
+local function get(u)
+  if not http then return nil,"HTTP API unavailable" end
+  local ok,r=pcall(http.get,u,{["User-Agent"]="CC-PKG/0.4.0"})
+  if not ok or not r then logLine(ERROR_LOG_FILE,"HTTP request failed: "..tostring(u).." | "..tostring(r)); return nil,"request failed: "..tostring(r) end
+  local s=r.readAll(); r.close(); logLine(LOG_FILE,"GET "..tostring(u)); return s
+end
+local function index(repo)
+  local b=repo.url; if b:sub(-1)~="/" then b=b.."/" end
+  local s,e=get(b.."index.json"); if not s then return nil,e end
+  local ok,v=pcall(textutils.unserialiseJSON,s)
+  if not ok or type(v)~="table" then return nil,"invalid repository index" end
+  v._base=b; return v
+end
+local function manifest(repo,entry,version)
+  local p
+  if version and entry.versions and entry.versions[version] then p=entry.versions[version].manifest end
+  p=p or entry.manifest or ("packages/"..entry.name.."/package.json")
+  local s,e=get(url(repo._base or repo.url,p)); if not s then return nil,e end
+  local ok,v=pcall(textutils.unserialiseJSON,s)
+  if not ok or type(v)~="table" then return nil,"invalid package manifest" end
+  return v,p
+end
+local function computerType() return pocket and "pocket" or "computer" end
+local function isPocketVersion(v) return tostring(v):lower():find("pocket",1,true) ~= nil end
+local function versionNumber(v)
+  local a={}
+  for x in tostring(v):gmatch("%d+") do a[#a+1]=tonumber(x) end
+  return (a[1] or 0)*1000000+(a[2] or 0)*1000+(a[3] or 0)
+end
+local function chooseVersion(entry)
+  if type(entry.versions)~="table" then return entry,nil end
+  local target=computerType()
+  local best,bestNum
+  for v in pairs(entry.versions) do
+    local pocketVersion=isPocketVersion(v)
+    local compatible=(target=="pocket" and pocketVersion) or (target=="computer" and not pocketVersion)
+    if compatible then
+      local n=versionNumber(v)
+      if not bestNum or n>bestNum or (n==bestNum and tostring(v)>tostring(best)) then best,bestNum=v,n end
+    end
+  end
+  if not best then return nil,"no version supports this "..target.." computer" end
+  entry._selectedVersion=best
+  return entry,best
+end
+local function find(name)
+  for _,r in ipairs(config().repositories or {}) do
+    local i=index(r)
+    if i and i.packages and i.packages[name] then
+      local e=i.packages[name]; e.name=e.name or name; e._repo=r
+      local x,v=chooseVersion(e); if x then return x,v end
+    end
+  end
+  return nil,"package not found or unsupported on this computer"
+end
+local function install(name,seen)
+  logLine(LOG_FILE,"INSTALL "..tostring(name).." on "..computerType())
+  seen=seen or {}; if seen[name] then return true end; seen[name]=true
+  local e,v=find(name); if not e then return fail(v) end
+  local m,mp,er=manifest(e._repo,e,v); if not m then return fail(mp) end
+  if computerType()=="pocket" and not isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is not a pocket version") end
+  if computerType()=="computer" and isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is pocket-only") end
+  for _,d in ipairs(m.dependencies or {}) do if not install(d,seen) then return false end end
+  local d=db(); local old=d.packages[name]
+  if old and old.version==m.version and old.target==computerType() then print(name.." "..m.version.." is already installed.") return true end
+  print("Installing "..name.." "..tostring(m.version).." for "..computerType().."...")
+  for _,f in ipairs(m.files or {}) do
+    local source=f.source or f.path
+    local path=f.path or f.source
+    local s,ce=get(url(e._repo._base or e._repo.url,source))
+    if not s then return fail("failed to install "..tostring(path)..": "..tostring(ce)) end
+    local p=fs.getDir(path); if p~="" and not fs.exists(p) then fs.makeDir(p) end
+    local h=fs.open("/"..path:gsub("^/",""),"w")
+    if not h then return fail("cannot write "..path) end
+    h.write(s); h.close()
+  end
+  d.packages[name]={version=m.version,target=computerType(),files=m.files or {},repository=e._repo.name}
+  saveDb(d); print("Installed "..name.." "..tostring(m.version).."."); return true
+end
+local function remove(name)
+  logLine(LOG_FILE,"REMOVE "..tostring(name))
+  local d=db(); local p=d.packages[name]; if not p then return fail("package is not installed: "..name) end
+  for _,f in ipairs(p.files or {}) do local x="/"..(f.path or f.source):gsub("^/",""); if fs.exists(x) then fs.delete(x) end end
+  d.packages[name]=nil; saveDb(d); print("Removed "..name..".")
+end
+local function search(q)
+  q=(q or ""):lower(); local n=0
+  for _,r in ipairs(config().repositories or {}) do local i=index(r)
+    if i then for name,e in pairs(i.packages or {}) do
+      local h=(name.." "..(e.description or "")):lower()
+      if q=="" or h:find(q,1,true) then
+        local count=0; for _ in pairs(e.versions or {}) do count=count+1 end
+        print(name.." - "..(e.description or "").." ("..count.." versions)")
+        n=n+1
+      end
+    end end
+  end
+  if n==0 then print("No packages found.") end
+end
+local function list()
+  local d=db(); local n=0
+  for name,p in pairs(d.packages or {}) do print(name.." "..tostring(p.version).." ["..tostring(p.target).."]"); n=n+1 end
+  if n==0 then print("No packages installed.") end
+end
+local function info(name)
+  local e,v=find(name); if not e then return fail(v) end
+  local m,mp=manifest(e._repo,e,v); if not m then return fail(mp) end
+  print("Name: "..tostring(m.name or name))
+  print("Version: "..tostring(m.version or v))
+  print("Target: "..computerType())
+  print("Pocket version: "..tostring(isPocketVersion(m.version or v)))
+  print("Author: "..tostring(m.author or "Unknown"))
+  print("Description: "..tostring(m.description or ""))
+  print("Manifest: "..mp)
+end
+local function repos()
+  for _,r in ipairs(config().repositories or {}) do print((r.name or "unnamed").." - "..r.url) end
+end
+local function selfUpdate()
+  print("Checking for CC PKG updates...")
+  local s,e=get(PKG_SOURCE)
+  if not s then return fail("failed to download latest pkg: "..tostring(e)) end
+  local tmp="/.ccpkg/pkg.new"
+  local h=fs.open(tmp,"w")
+  if not h then return fail("cannot create temporary update file") end
+  h.write(s); h.close()
+  local check=fs.open(tmp,"r")
+  if not check then return fail("cannot verify downloaded pkg") end
+  local downloaded=check.readAll(); check.close()
+  if downloaded=="" then fs.delete(tmp); return fail("downloaded pkg is empty") end
+  local old="/pkg"
+  if fs.exists(old) then fs.delete(old) end
+  local ok=fs.move(tmp,old)
+  if not ok then
+    if fs.exists(tmp) then fs.delete(tmp) end
+    return fail("could not replace /pkg")
+  end
+  print("CC PKG updated to the latest version.")
+  print("Run pkg help to load the updated client.")
+  return true
+end
+local function upgrade()
+  local d=db(); local names={}
+  for n in pairs(d.packages or {}) do names[#names+1]=n end
+  for _,n in ipairs(names) do
+    local e,v=find(n)
+    if e then
+      local m=manifest(e._repo,e,v)
+      if m and (tostring(m.version)~=tostring(d.packages[n].version) or d.packages[n].target~=computerType()) then install(n)
+      else print(n.." is up to date.") end
+    end
+  end
+end
+local function help()
+  print("CC PKG "..PKG_VERSION)
+  print("Logs: /.ccpkg/pkg.log")
+  print("Errors: /.ccpkg/error.log")
+  print("Version target rule:")
+  print("  * Versions containing 'pocket' = pocket computer")
+  print("  * All other versions = regular computer")
+  print("  search <query>   Search packages")
+  print("  info <package>   Show selected version/target")
+  print("  install <pkg>    Install highest compatible version")
+  print("  remove <pkg>     Remove package")
+  print("  update           Refresh repository metadata")
+  print("  upgrade          Upgrade installed packages")
+  print("  list             List installed packages")
+  print("  repo list        List repositories")
+end
+ensureDir()
+local a={...}; local c=a[1]
+if not c or c=="help" then help()
+elseif c=="search" then search(table.concat(a," ",2))
+elseif c=="info" and a[2] then info(a[2])
+elseif c=="install" and a[2] then install(a[2])
+elseif c=="remove" and a[2] then remove(a[2])
+elseif c=="list" then list()
+elseif c=="repo" and a[2]=="list" then repos()
+elseif c=="update" then print("Repository metadata is fetched on demand.")
+elseif c=="self-update" then selfUpdate()
+elseif c=="upgrade" then upgrade()
+else help() end
