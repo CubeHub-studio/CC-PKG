@@ -1,6 +1,6 @@
 # CC PKG
 
-CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects versions based on the computer type, tracks installed packages, and supports dependencies.
+CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects versions based on the computer type, resolves dependencies, verifies package integrity, scans packages before installation, tracks installed packages, and supports transactional rollback.
 
 ## Free Installer
 
@@ -53,6 +53,14 @@ pkg list
 pkg update
 pkg upgrade
 pkg self-update
+pkg inspect <package>
+pkg test <package>
+pkg verify <package>
+pkg audit
+pkg doctor
+pkg autoremove
+pkg clean
+pkg recovery
 pkg repo list
 ```
 
@@ -83,6 +91,24 @@ Install it with:
 pkg install moon-bios
 ```
 
+## Security and integrity
+
+CC PKG performs pre-install scanning across the entire dependency tree before package files are written. It validates package paths, checks supplied SHA-256 file hashes, records installed hashes in `/.ccpkg/pkg-lock.json`, detects suspicious capabilities, and uses backups for transactional rollback.
+
+Useful security and diagnostics commands:
+
+```text
+pkg inspect <package>
+pkg test <package>
+pkg verify <package>
+pkg audit
+pkg doctor
+```
+
+SHA-256 values can be supplied by repository maintainers in each file entry. CC PKG records the actual downloaded hashes for installed files.
+
+CC:Tweaked exposes filesystem, networking, command, turtle, redstone and peripheral APIs, including custom peripherals, so static antivirus scanning is a capability detector rather than a mathematical proof that arbitrary Lua is safe.
+
 ## Local data and logs
 
 CC PKG stores its state in `/.ccpkg/`:
@@ -91,6 +117,8 @@ CC PKG stores its state in `/.ccpkg/`:
 - `installed.json` — installed package records
 - `pkg.log` — normal activity log
 - `error.log` — errors
+- `backups/` — package rollback/recovery backups
+- `pkg-lock.json` — exact installed versions, targets, repositories and file hashes
 
 ## Community repositories
 
