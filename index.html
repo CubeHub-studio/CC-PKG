@@ -47,8 +47,17 @@ local function sha256(data)
   local bitLen=len*8
   local hi=math.floor(bitLen/4294967296)
   local lo=bitLen-hi*4294967296
+  local function be32(n)
+    return string.char(
+      math.floor(n/16777216)%256,
+      math.floor(n/65536)%256,
+      math.floor(n/256)%256,
+      n%256
+    )
+  end
+  data=data..be32(hi)..be32(lo)
   local function u32(n) return bit32.band(n,0xffffffff) end
-  local function add(...) local r=0; for i=1,select("#",...) do r=r+select(i,...); if r>=4294967296 then r=r-4294967296 end end; return r end
+  local function add(...) local r=0; for i=1,select("#",...) do r=r+select(i,...) end; return r%4294967296 end
   local function rotr(x,n) return bit32.rshift(x,n)+bit32.lshift(x,32-n) end
   local function read32(i) return u32(data:byte(i)*16777216+data:byte(i+1)*65536+data:byte(i+2)*256+data:byte(i+3)) end
   for base=1,#data,64 do
@@ -743,7 +752,7 @@ local function autoremove()
   end
   local removed=0
   for n in pairs(d.packages or {}) do
-    if not p.explicit and not needed[n] then
+    if p.explicit==false and not needed[n] then
       local ok=remove(n,false)
       if ok then removed=removed+1 end
     end
@@ -976,7 +985,7 @@ elseif c=="repo" and a[2]=="list" then repos()
 elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
 elseif c=="repo" and a[2]=="remove" and a[3] then repoRemove(a[3])
 elseif c=="repo" and a[2]=="update" then repoUpdate()
-elseif c=="update" then print("Repository metadata is fetched on demand.")
+elseif c=="update" then repoUpdate()
 elseif c=="self-update" then selfUpdate()
 elseif c=="upgrade" then upgrade()
 else help() end
