@@ -26,7 +26,7 @@ pkg help
 
 ## Update CC PKG itself
 
-CC PKG 0.5.0 includes a self-updater. Run:
+CC PKG includes a self-updater. Run:
 
 ```text
 pkg self-update
