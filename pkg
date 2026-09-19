@@ -939,7 +939,7 @@ local function upgrade()
   end
 end
 local function help()
-  print("CC PKG "..PKG_VERSION)
+  print("Please go to https://github.com/CubeHub-studio/CC-PKG/blob/main/docs/commands.md for commands.")
   print("Logs: /.ccpkg/pkg.log")
   print("Errors: /.ccpkg/error.log")
   print("Lockfile: /.ccpkg/pkg-lock.json")
