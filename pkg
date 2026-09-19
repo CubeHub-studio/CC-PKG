@@ -306,14 +306,14 @@ local function versionNumber(v)
   for x in tostring(v):gmatch("%d+") do a[#a+1]=tonumber(x) end
   return (a[1] or 0)*1000000+(a[2] or 0)*1000+(a[3] or 0)
 end
-local function chooseVersion(entry)
+local function chooseVersion(entry,constraint)
   if type(entry.versions)~="table" then return entry,nil end
   local target=computerType()
   local best,bestNum
   for v in pairs(entry.versions) do
     local pocketVersion=isPocketVersion(v)
     local compatible=(target=="pocket" and pocketVersion) or (target=="computer" and not pocketVersion)
-    if compatible then
+    if compatible and satisfies(v,constraint) then
       local n=versionNumber(v)
       if not bestNum or n>bestNum or (n==bestNum and tostring(v)>tostring(best)) then best,bestNum=v,n end
     end
@@ -322,12 +322,12 @@ local function chooseVersion(entry)
   entry._selectedVersion=best
   return entry,best
 end
-local function find(name)
+local function find(name,constraint)
   for _,r in ipairs(config().repositories or {}) do
     local i=index(r)
     if i and i.packages and i.packages[name] then
       local e=i.packages[name]; e.name=e.name or name; e._repo=r
-      local x,v=chooseVersion(e); if x then return x,v end
+      local x,v=chooseVersion(e,constraint); if x then return x,v end
     end
   end
   return nil,"package not found or unsupported on this computer"
@@ -476,7 +476,7 @@ local function collectPlan(name,plan,visiting,rootConstraint)
   plan=plan or {}; visiting=visiting or {}
   if visiting[name] then return nil,"circular dependency detected: "..name end
   local existing=plan[name]
-  local e,v=find(name); if not e then return nil,"package not found: "..name end
+  local e,v=find(name,rootConstraint); if not e then return nil,"package not found or no compatible version: "..name end
   local m,mp,er=manifest(e._repo,e,v); if not m then return nil,mp end
   if rootConstraint and not satisfies(m.version,rootConstraint) then
     return nil,name.." "..tostring(m.version).." does not satisfy "..tostring(rootConstraint)
