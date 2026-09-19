@@ -1,6 +1,13 @@
 # CC PKG Changelog
 
-## 0.9.0
+## 0.9.1
+
+- Added the CC-PKG Preset Repository as an automatic built-in repository.
+- Added `pkg version`, `device`, `sources`, `files`, `depends`, `why`, `capabilities`, `lock`, `outdated`, and `check` tools.
+- Added `pkg repo info`.
+- Protected built-in repositories from removal.
+- Fixed the existing autoremove variable bug.
+
 
 - Added multi-package repository support with version directories.
 - Added packages/package/versions/version structure support.
