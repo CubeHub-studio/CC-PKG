@@ -676,8 +676,13 @@ local function removePackageFiles(name,d,p)
   local dirs={}
   for _,path in ipairs(owned) do
     if not shared[path] and fs.exists(path) and not fs.isReadOnly(path) then
-      fs.delete(path)
-      removed=removed+1
+      if fs.isDir(path) then
+        -- Never recursively delete a package-owned directory here.
+        -- It will only be removed below if it is empty.
+      else
+        fs.delete(path)
+        removed=removed+1
+      end
     elseif shared[path] then
       skipped=skipped+1
     end
