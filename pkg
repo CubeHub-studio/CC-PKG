@@ -9,6 +9,7 @@ local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
+local PRESET_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG-Preset-Repository/main/"
 local PKG_VERSION="0.9.0"
 local PKG_SOURCE=DEFAULT_REPO
 local readJson,writeJson,versionNumber
@@ -200,7 +201,23 @@ writeJson=function(p,v)
 end
 local function config()
   local c=readJson(CONFIG_FILE,nil)
-  if type(c)~="table" then c={repositories={{name="official",url=DEFAULT_REPO}}}; writeJson(CONFIG_FILE,c) end
+  if type(c)~="table" then
+    c={repositories={
+      {name="official",url=DEFAULT_REPO,builtin=true},
+      {name="presets",url=PRESET_REPO,builtin=true}
+    }}
+    writeJson(CONFIG_FILE,c)
+  else
+    c.repositories=c.repositories or {}
+    local hasOfficial,hasPresets=false,false
+    for _,r in ipairs(c.repositories) do
+      if r.name=="official" then hasOfficial=true end
+      if r.name=="presets" or r.url==PRESET_REPO then hasPresets=true; r.name="presets"; r.url=PRESET_REPO; r.builtin=true end
+    end
+    if not hasOfficial then table.insert(c.repositories,1,{name="official",url=DEFAULT_REPO,builtin=true}) end
+    if not hasPresets then c.repositories[#c.repositories+1]={name="presets",url=PRESET_REPO,builtin=true} end
+    writeJson(CONFIG_FILE,c)
+  end
   return c
 end
 local function db() return readJson(DB_FILE,{packages={},backups={}}) end
@@ -1014,6 +1031,121 @@ local function info(name)
   print("Files: "..tostring(#(m.files or {})))
   print("Manifest: "..tostring(mp))
 end
+local function version()
+  print("CC PKG "..PKG_VERSION)
+end
+
+local function device()
+  print("Device: "..computerType())
+  print("Detected: "..table.concat(deviceIds(),", "))
+end
+
+local function sources(name)
+  local d=db()
+  if name and d.packages[name] then
+    local p=d.packages[name]
+    print("Package: "..name)
+    print("Repository: "..tostring(p.repository))
+    print("Version: "..tostring(p.version))
+    print("Target: "..tostring(p.target))
+    return
+  end
+  print("Configured repositories:")
+  for _,r in ipairs(config().repositories or {}) do
+    print("  "..tostring(r.name).." -> "..tostring(r.url))
+  end
+end
+
+local function files(name)
+  local d=db(); local p=d.packages[name]
+  if not p then return fail("package is not installed: "..tostring(name)) end
+  local list=packageOwnedFiles(p)
+  print(name.." owns "..#list.." file(s):")
+  for _,path in ipairs(list) do print("  "..path) end
+end
+
+local function depends(name)
+  local d=db(); local p=d.packages[name]
+  if not p then return fail("package is not installed: "..tostring(name)) end
+  print(name.." dependencies:")
+  if not p.dependencies or #p.dependencies==0 then print("  none"); return end
+  for _,dep in ipairs(p.dependencies) do
+    local n,c=dependencySpec(dep)
+    print("  "..tostring(n).." "..tostring(c or "*"))
+  end
+end
+
+local function why(name)
+  local d=db(); local found=false
+  for parent,p in pairs(d.packages or {}) do
+    for _,dep in ipairs(p.dependencies or {}) do
+      local n,c=dependencySpec(dep)
+      if n==name then
+        print(parent.." requires "..name.." "..tostring(c or "*"))
+        found=true
+      end
+    end
+  end
+  if not found then print("No installed package depends on "..name..".") end
+end
+
+local function capabilities(name)
+  local d=db(); local p=d.packages[name]
+  if not p then return fail("package is not installed: "..tostring(name)) end
+  print(name.." capabilities:")
+  print("  "..capabilityText(p.capabilities or {}))
+end
+
+local function lock()
+  local l=lockData()
+  local n=0
+  for name,p in pairs(l.packages or {}) do
+    n=n+1
+    print(name.." "..tostring(p.version).." ["..tostring(p.target).."]")
+  end
+  if n==0 then print("Lockfile is empty.") end
+end
+
+local function outdated()
+  local d=db(); local count=0
+  for name,p in pairs(d.packages or {}) do
+    local e,v=find(name)
+    if e then
+      local m=manifest(e._repo,e,v)
+      if m and tostring(m.version)~=tostring(p.version) then
+        print(name..": "..tostring(p.version).." -> "..tostring(m.version))
+        count=count+1
+      end
+    end
+  end
+  if count==0 then print("All installed packages are up to date.") end
+end
+
+local function check(name)
+  if name then
+    return verifyPackage(name)
+  end
+  return audit()
+end
+
+local function repoInfo(name)
+  for _,r in ipairs(config().repositories or {}) do
+    if r.name==name then
+      local i,e=index(r)
+      if not i then return fail("repository unavailable: "..tostring(e)) end
+      local n=0
+      for _ in pairs(i.packages or {}) do n=n+1 end
+      print("Name: "..tostring(r.name))
+      print("URL: "..tostring(r.url))
+      print("Builtin: "..tostring(r.builtin==true))
+      print("Packages: "..n)
+      print("Index version: "..tostring(i.version or "unknown"))
+      return true
+    end
+  end
+  return fail("repository not found: "..tostring(name))
+end
+
 local function repos()
   local c=config()
   local list=c.repositories or {}
@@ -1054,7 +1186,7 @@ local function repoRemove(name)
   local list=c.repositories or {}
   for i,r in ipairs(list) do
     if r.name==name then
-      if name=="official" then return fail("cannot remove the official repository") end
+      if name=="official" or name=="presets" then return fail("cannot remove a built-in repository") end
       table.remove(list,i)
       if not writeJson(CONFIG_FILE,c) then return fail("could not save repository configuration") end
       print("Removed repository "..name..".")
@@ -1173,7 +1305,18 @@ elseif c=="repo" and a[2]=="list" then repos()
 elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
 elseif c=="repo" and a[2]=="remove" and a[3] then repoRemove(a[3])
 elseif c=="repo" and a[2]=="update" then repoUpdate()
+elseif c=="repo" and a[2]=="info" and a[3] then repoInfo(a[3])
 elseif c=="update" then repoUpdate()
+elseif c=="version" then version()
+elseif c=="device" then device()
+elseif c=="sources" then sources(a[2])
+elseif c=="files" and a[2] then files(a[2])
+elseif c=="depends" and a[2] then depends(a[2])
+elseif c=="why" and a[2] then why(a[2])
+elseif c=="capabilities" and a[2] then capabilities(a[2])
+elseif c=="lock" then lock()
+elseif c=="outdated" then outdated()
+elseif c=="check" then check(a[2])
 elseif c=="self-update" then selfUpdate()
 elseif c=="upgrade" then upgrade()
 else help() end
