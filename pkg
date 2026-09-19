@@ -583,7 +583,12 @@ local function install(name)
         local h=fs.open(safe,"w")
         if not h then
           for _,b in ipairs(backups) do if b.path then restoreBackup(b.path) end end
-          for _,w in ipairs(written) do local owned=false; for _,b in ipairs(backups) do if not b.path then owned=true end end; if owned and fs.exists(w) then fs.delete(w) end end
+          for _,w in ipairs(written) do
+            local hadBackup=false
+            local rel=w:gsub("^/","")
+            for _,b in ipairs(backups) do if b.path and fs.exists(b.path.."/"..rel) then hadBackup=true end end
+            if not hadBackup and fs.exists(w) then fs.delete(w) end
+          end
           return fail("cannot write "..tostring(safe))
         end
         h.write(f.data); h.close()
