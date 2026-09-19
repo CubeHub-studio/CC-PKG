@@ -1,7 +1,7 @@
--- CC PKG 0.8.0
+-- CC PKG 0.9.0
 -- Package ownership is tracked so removal cleans installed files and empty directories while preserving shared files.
--- Version names containing "pocket" are pocket-only.
--- All other version names are for regular computers.
+-- Versioned packages may use packages/<name>/versions/<version>/ with a devicedata file.
+-- Legacy version-name targeting remains supported for backward compatibility.
 
 local CONFIG_DIR="/.ccpkg"
 local CONFIG_FILE=CONFIG_DIR.."/config.json"
@@ -9,7 +9,7 @@ local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
-local PKG_VERSION="0.8.0"
+local PKG_VERSION="0.9.0"
 local PKG_SOURCE=DEFAULT_REPO
 local readJson,writeJson,versionNumber
 
@@ -292,17 +292,126 @@ local function index(repo)
   if not ok or type(v)~="table" then return nil,"invalid repository index" end
   v._base=b; return v
 end
+local function versionEntry(entry,version)
+  if not version or type(entry.versions)~="table" then return nil end
+  local v=entry.versions[version]
+  if type(v)=="string" then return {path=v} end
+  if type(v)=="table" then return v end
+  return nil
+end
+
+local function versionBasePath(entry,version)
+  local v=versionEntry(entry,version)
+  if not v then return nil end
+  local p=v.path or v.directory or v.dir
+  if p and p:sub(-1)~="/" then p=p.."/" end
+  return p
+end
+
+local function loadDeviceData(repo,entry,version)
+  local v=versionEntry(entry,version)
+  if not v then return nil,nil end
+  if type(v.devices)=="table" or type(v.devices)=="string" then return {devices=v.devices} end
+  local p=v.devicedata
+  if not p then
+    local base=versionBasePath(entry,version)
+    if base then p=base.."devicedata" end
+  end
+  if not p then return nil,nil end
+  local s,e=get(url(repo._base or repo.url,p))
+  if not s then return nil,e end
+  local ok,data=pcall(textutils.unserialiseJSON,s)
+  if ok and type(data)=="table" then return data,nil end
+  local devices={}
+  for line in s:gmatch("[^\r\n]+") do
+    line=line:gsub("^%s+",""):gsub("%s+$","")
+    if line~="" and not line:match("^#") then devices[#devices+1]=line end
+  end
+  if #devices>0 then return {devices=devices},nil end
+  return nil,"invalid devicedata"
+end
+
+local function deviceIds()
+  local ids={}
+  local seen={}
+  local function add(id) if not seen[id] then seen[id]=true; ids[#ids+1]=id end end
+  local isPocket=type(pocket)=="table" or pocket~=nil
+  local advanced=false
+  if term then
+    local ok,result=pcall(function()
+      if term.isColor then return term.isColor() end
+      if term.isColour then return term.isColour() end
+      return false
+    end)
+    advanced=ok and result==true
+  end
+  if isPocket then
+    add("pocket_computer")
+    if advanced then add("advanced_pocket_computer") end
+    if peripheral and peripheral.find then
+      local ok,speaker=pcall(peripheral.find,"speaker")
+      if ok and speaker then add("noisy_pocket_computer") end
+    end
+  else
+    add("computer")
+    if advanced then add("advanced_computer") end
+  end
+  return ids
+end
+
+local function computerType()
+  local ids=deviceIds()
+  return ids[#ids] or "computer"
+end
+
+local function deviceMatches(wanted)
+  if type(wanted)=="string" then wanted={wanted} end
+  if type(wanted)~="table" or #wanted==0 then return true end
+  local have=deviceIds()
+  local function normalize(v)
+    v=tostring(v or ""):lower():gsub("%s+","_"):gsub("%-","_")
+    if v=="pocket" then return "pocket_computer" end
+    if v=="advanced_pocket" then return "advanced_pocket_computer" end
+    if v=="advanced" then return "advanced_computer" end
+    return v
+  end
+  for _,want in ipairs(wanted) do
+    want=normalize(want)
+    for _,actual in ipairs(have) do
+      if want==actual
+        or (want=="computer" and (actual=="computer" or actual=="advanced_computer"))
+        or (want=="pocket_computer" and (actual=="pocket_computer" or actual=="advanced_pocket_computer" or actual=="noisy_pocket_computer"))
+        or (want=="advanced_pocket_computer" and (actual=="advanced_pocket_computer" or actual=="noisy_pocket_computer")) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function isPocketVersion(v) return tostring(v):lower():find("pocket",1,true) ~= nil end
+local function legacyVersionCompatible(v)
+  local name=tostring(v):lower()
+  local isPocket=name:find("pocket",1,true)~=nil
+  for _,id in ipairs(deviceIds()) do
+    if isPocket and (id=="pocket_computer" or id=="advanced_pocket_computer" or id=="noisy_pocket_computer") then return true end
+    if not isPocket and (id=="computer" or id=="advanced_computer") then return true end
+  end
+  return false
+end
+
 local function manifest(repo,entry,version)
   local p
-  if version and entry.versions and entry.versions[version] then p=entry.versions[version].manifest end
+  local ve=versionEntry(entry,version)
+  local base=versionBasePath(entry,version)
+  if ve and ve.manifest then p=ve.manifest
+  elseif base then p=base.."package.json" end
   p=p or entry.manifest or ("packages/"..entry.name.."/package.json")
   local s,e=get(url(repo._base or repo.url,p)); if not s then return nil,e end
   local ok,v=pcall(textutils.unserialiseJSON,s)
   if not ok or type(v)~="table" then return nil,"invalid package manifest" end
   return v,p
 end
-local function computerType() return pocket and "pocket" or "computer" end
-local function isPocketVersion(v) return tostring(v):lower():find("pocket",1,true) ~= nil end
 versionNumber=function(v)
   local a={}
   for x in tostring(v):gmatch("%d+") do a[#a+1]=tonumber(x) end
@@ -310,17 +419,24 @@ versionNumber=function(v)
 end
 local function chooseVersion(entry,constraint)
   if type(entry.versions)~="table" then return entry,nil end
-  local target=computerType()
   local best,bestNum
   for v in pairs(entry.versions) do
-    local pocketVersion=isPocketVersion(v)
-    local compatible=(target=="pocket" and pocketVersion) or (target=="computer" and not pocketVersion)
-    if compatible and satisfies(v,constraint) then
-      local n=versionNumber(v)
-      if not bestNum or n>bestNum or (n==bestNum and tostring(v)>tostring(best)) then best,bestNum=v,n end
+    if satisfies(v,constraint) then
+      local compatible=false
+      local ve=versionEntry(entry,v)
+      if ve and (ve.devices or ve.devicedata or versionBasePath(entry,v)) then
+        local devices=loadDeviceData(entry._repo,entry,v)
+        if devices then compatible=deviceMatches(devices.devices or devices.device or {}) end
+      else
+        compatible=legacyVersionCompatible(v)
+      end
+      if compatible then
+        local n=versionNumber(v)
+        if not bestNum or n>bestNum or (n==bestNum and tostring(v)>tostring(best)) then best,bestNum=v,n end
+      end
     end
   end
-  if not best then return nil,"no version supports this "..target.." computer" end
+  if not best then return nil,"no version supports this "..computerType().." device" end
   entry._selectedVersion=best
   return entry,best
 end
@@ -490,8 +606,16 @@ local function collectPlan(name,plan,visiting,rootConstraint)
   for _,f in ipairs(m.files or {}) do
     if not safePath(f.path or f.source) then return nil,"unsafe package path: "..tostring(f.path or f.source) end
   end
-  if computerType()=="pocket" and not isPocketVersion(m.version) then return nil,"version "..tostring(m.version).." is not a pocket version" end
-  if computerType()=="computer" and isPocketVersion(m.version) then return nil,"version "..tostring(m.version).." is pocket-only" end
+  local ve=versionEntry(e,v)
+  if ve and (ve.devices or ve.devicedata or versionBasePath(e,v)) then
+    local loaded,deviceError=loadDeviceData(e._repo,e,v)
+    if not loaded then return nil,"could not read devicedata for "..name..": "..tostring(deviceError) end
+    if not deviceMatches(loaded.devices or loaded.device or {}) then
+      return nil,"version "..tostring(m.version).." does not support this device ("..computerType()..")"
+    end
+  elseif not legacyVersionCompatible(m.version) then
+    return nil,"version "..tostring(m.version).." is not compatible with this device ("..computerType()..")"
+  end
   visiting[name]=true
   local deps=manifestDependencies(m)
   for _,dep in ipairs(deps) do
@@ -770,6 +894,7 @@ local function inspectPackage(name)
   print("Version: "..tostring(m.version or v))
   print("Repository: "..tostring(e._repo.name))
   print("Target: "..computerType())
+  print("Detected devices: "..table.concat(deviceIds(),","))
   print("Author: "..tostring(m.author or "Unknown"))
   print("License: "..tostring(m.license or "Not specified"))
   print("Homepage: "..tostring(m.homepage or "Not specified"))
