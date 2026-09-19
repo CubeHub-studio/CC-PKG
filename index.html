@@ -10,7 +10,7 @@ local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
 local PRESET_REPO="https://raw.githubusercontent.com/CubeHub-studio/CC-PKG-Preset-Repository/main/"
-local PKG_VERSION="0.9.0"
+local PKG_VERSION="0.9.1"
 local PKG_SOURCE=DEFAULT_REPO
 local readJson,writeJson,versionNumber
 
@@ -977,7 +977,7 @@ local function autoremove()
     for _,dep in ipairs(p.dependencies or {}) do local n=dependencySpec(dep); if n then needed[n]=true end end
   end
   local removed=0
-  for n in pairs(d.packages or {}) do
+  for n,p in pairs(d.packages or {}) do
     if p.explicit==false and not needed[n] then
       local ok=remove(n,false)
       if ok then removed=removed+1 end
