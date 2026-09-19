@@ -98,6 +98,33 @@ pkg install moon-bios
 
 CC-PKG chooses the compatible Moon BIOS version automatically.
 
+## Built-in repositories
+
+Every new CC-PKG installation automatically includes:
+
+- **official** — the official CC-PKG repository.
+- **presets** — the CubeHub Studio CC-PKG Preset Repository.
+
+The preset repository is built into the client configuration and cannot be removed with `pkg repo remove`.
+
+## Package management tools
+
+Useful inspection and maintenance commands:
+
+~~~text
+pkg version
+pkg device
+pkg sources [package]
+pkg files <package>
+pkg depends <package>
+pkg why <package>
+pkg capabilities <package>
+pkg lock
+pkg outdated
+pkg check [package]
+pkg repo info <repository>
+~~~
+
 ## Community repositories
 
 Create your own repository and publish it over HTTP or HTTPS. GitHub Pages works well because it serves static files using the repository's directory structure. citeturn6search0turn6search1
