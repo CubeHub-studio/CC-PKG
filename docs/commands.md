@@ -1,6 +1,6 @@
 # CC-PKG Commands
 
-Complete command reference for CC-PKG 0.9.1.
+Complete command reference for CC-PKG 0.9.2.
 
 ## Package commands
 
@@ -15,7 +15,7 @@ Complete command reference for CC-PKG 0.9.1.
 | pkg list | List installed packages. |
 | pkg verify <package> | Verify installed files against recorded SHA-256 hashes. |
 | pkg audit | Verify every installed package. |
-| pkg upgrade | Upgrade installed packages to the newest compatible versions. |
+| pkg upgrade [package] | Upgrade one package or all installed packages to the newest compatible versions. |
 | pkg autoremove | Remove non-explicit packages that are no longer required. |
 | pkg restore <package> | Restore a package from its backup. |
 | pkg clean | Remove CC-PKG backups and temporary data. |
@@ -40,6 +40,8 @@ Complete command reference for CC-PKG 0.9.1.
 | Command | Description |
 |---|---|
 | pkg update | Refresh/check configured repository metadata and health. |
+| pkg update-all | Self-update CC-PKG, update repositories, then upgrade installed packages. |
+| pkg full-update | Alias for `pkg update-all`. |
 | pkg repo list | List configured repositories. |
 | pkg repo add <url> | Add a community package repository. |
 | pkg repo remove <name> | Remove a community package repository. |
