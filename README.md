@@ -1,135 +1,127 @@
 # CC PKG
 
-CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects versions based on the computer type, resolves dependencies, verifies package integrity, scans packages before installation, tracks installed packages, and supports transactional rollback.
+CC PKG is a lightweight package manager for CC:Tweaked. It installs packages over HTTP, selects device-specific versions, resolves dependencies, verifies package integrity, scans packages before installation, tracks installed packages, and supports transactional rollback.
 
 ## Free Installer
 
-CC PKG is hosted for free with GitHub Pages.
+Install CC-PKG directly on a CC:Tweaked computer with HTTP enabled:
 
-Install CC PKG directly on a CC:Tweaked computer with HTTP enabled:
-
-```lua
+~~~lua
 wget https://cubehub-studio.github.io/CC-PKG/ pkg
-```
+~~~
 
-The installer endpoint is:
+The downloaded client is installed as /pkg.
 
-**https://cubehub-studio.github.io/CC-PKG/**
+## Package repository structure
 
-The downloaded client is installed as `/pkg`.
+A repository can contain many packages:
 
-Then run:
+~~~text
+repository/
+├── repometadata.json
+├── index.json
+└── packages/
+    ├── package-a/
+    │   ├── package.json
+    │   └── versions/
+    │       ├── 1.0.0/
+    │       │   ├── devicedata
+    │       │   ├── package.json
+    │       │   └── ...
+    │       └── 1.1.0/
+    │           ├── devicedata
+    │           ├── package.json
+    │           └── ...
+    └── package-b/
+        ├── package.json
+        └── versions/
+            └── 1.0.0/
+                ├── devicedata
+                ├── package.json
+                └── ...
+~~~
 
-```text
-pkg help
-```
+A repository is a package collection. A package can have many versions, and each version can target different CC:Tweaked hardware.
 
-## Update CC PKG itself
+## Device-specific versions
 
-CC PKG includes a self-updater. Run:
+Each new-style version has a devicedata file.
 
-```text
-pkg self-update
-```
+Example:
 
-It downloads the current `pkg` client from the official repository and replaces `/pkg`.
+~~~json
+{
+  "devices": [
+    "advanced_pocket_computer",
+    "noisy_pocket_computer"
+  ]
+}
+~~~
 
-If you are using an older CC PKG version that does not have `self-update`, reinstall it with:
+Supported identifiers:
 
-```lua
-delete pkg
-wget https://cubehub-studio.github.io/CC-PKG/ pkg
-```
+- computer
+- advanced_computer
+- pocket_computer
+- advanced_pocket_computer
+- noisy_pocket_computer
 
-## Package commands
-
-```text
-pkg help
-pkg search <query>
-pkg info <package>
-pkg install <package>
-pkg remove <package>
-pkg list
-pkg update
-pkg upgrade
-pkg self-update
-pkg inspect <package>
-pkg test <package>
-pkg verify <package>
-pkg audit
-pkg doctor
-pkg autoremove
-pkg clean
-pkg recovery
-pkg repo list
-```
-
-`pkg update` currently refreshes repository metadata on demand; package metadata is fetched whenever commands need it. `pkg self-update` is the command for updating the CC PKG client itself. `pkg upgrade` upgrades installed packages.
-
-## Version targeting
-
-Package versions are selected by the version name:
-
-- A version containing `pocket` (case-insensitive) is for pocket computers.
-- Every other version name is for regular computers.
-- The highest compatible numeric version is selected.
-
-For example:
-
-- `v1.3 pocket` → pocket computer
-- `v1.2 advance` → regular computer
-- `v1.2 mini` → regular computer
-- `v1.3` → regular computer
+CC-PKG detects the current device, reads devicedata, filters incompatible versions, and selects the newest compatible version. CC:Tweaked documents the pocket API as pocket-only and documents colour support on advanced computers. citeturn0search3turn7search0
 
 ## Moon BIOS
 
-The official repository currently provides Moon BIOS packages with separate compatible versions. The regular-computer `v1.3` package serves the fixed v1.3 source.
+The official repository now demonstrates the new format with Moon BIOS:
 
-Install it with:
+~~~text
+packages/moon-bios/
+├── package.json
+└── versions/
+    ├── 1.2.0/
+    │   ├── devicedata
+    │   └── package.json
+    ├── 1.2-advance/
+    │   ├── devicedata
+    │   └── package.json
+    ├── 1.3.0/
+    │   ├── devicedata
+    │   └── package.json
+    └── 1.3-pocket/
+        ├── devicedata
+        └── package.json
+~~~
 
-```text
+Install normally:
+
+~~~text
 pkg install moon-bios
-```
+~~~
+
+CC-PKG chooses the compatible Moon BIOS version automatically.
+
+## Community repositories
+
+Create your own repository and publish it over HTTP or HTTPS. GitHub Pages works well because it serves static files using the repository's directory structure. citeturn6search0turn6search1
+
+Users add repositories with:
+
+~~~text
+pkg repo add https://example.com/ccpkg/
+~~~
+
+See docs/repository.md for the complete repository specification.
 
 ## Security and integrity
 
-CC PKG performs pre-install scanning across the entire dependency tree before package files are written. It validates package paths, checks supplied SHA-256 file hashes, records installed hashes in `/.ccpkg/pkg-lock.json`, detects suspicious capabilities, and uses backups for transactional rollback.
+CC-PKG performs pre-install scanning across the dependency tree before package files are written. It validates package paths, checks supplied SHA-256 hashes, records installed hashes in /.ccpkg/pkg-lock.json, detects suspicious capabilities, and uses backups for transactional rollback.
 
-Useful security and diagnostics commands:
+Useful commands include:
 
-```text
+~~~text
 pkg inspect <package>
 pkg test <package>
 pkg verify <package>
 pkg audit
 pkg doctor
-```
+~~~
 
-SHA-256 values can be supplied by repository maintainers in each file entry. CC PKG records the actual downloaded hashes for installed files.
-
-CC:Tweaked exposes filesystem, networking, command, turtle, redstone and peripheral APIs, including custom peripherals, so static antivirus scanning is a capability detector rather than a mathematical proof that arbitrary Lua is safe.
-
-## Local data and logs
-
-CC PKG stores its state in `/.ccpkg/`:
-
-- `config.json` — repository configuration
-- `installed.json` — installed package records
-- `pkg.log` — normal activity log
-- `error.log` — errors
-- `backups/` — package rollback/recovery backups
-- `pkg-lock.json` — exact installed versions, targets, repositories and file hashes
-
-## Community repositories
-
-We kindly ask for you to make your own PKG repositories. Thanks for helping PKG grow! Go to [Repository Documentation](docs/repository.md) for more info.
-
-Users can add a community repository with:
-
-```text
-pkg repo add https://example.com/ccpkg/
-```
-
-Repository names are provided by each repository's `repometadata.json` file.
-
-Third-Party Repository Disclaimer: CC PKG and its developers are not responsible for damage, data loss, malicious code, or other problems caused by packages or repositories provided by third parties. Only install packages from repositories you trust.
+Only install packages and repositories you trust.
