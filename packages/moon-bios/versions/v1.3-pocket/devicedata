@@ -1,5 +1,7 @@
 {
   "devices": [
-    "pocket_computer"
+    "pocket_computer",
+    "advanced_pocket_computer",
+    "noisy_pocket_computer"
   ]
 }
