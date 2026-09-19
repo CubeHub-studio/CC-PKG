@@ -1,4 +1,4 @@
--- CC PKG 0.7.0
+-- CC PKG 0.8.0
 -- Version names containing "pocket" are pocket-only.
 -- All other version names are for regular computers.
 
@@ -12,6 +12,155 @@ local PKG_VERSION="0.7.1"
 local PKG_SOURCE=DEFAULT_REPO
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
+
+local LOCK_FILE=CONFIG_DIR.."/pkg-lock.json"
+local MAX_PACKAGE_FILE_SIZE=5242880
+local MAX_PACKAGE_TOTAL_SIZE=20971520
+
+local function copyValue(v)
+  if type(v)~="table" then return v end
+  local t={}
+  for k,x in pairs(v) do t[k]=copyValue(x) end
+  return t
+end
+
+-- Pure-Lua SHA-256 using CC:Tweaked's bit32 API.
+local function sha256(data)
+  data=tostring(data or "")
+  if not bit32 then return nil,"bit32 unavailable" end
+  local K={
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b014,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+  }
+  local H={0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19}
+  local len=#data
+  data=data..string.char(0x80)
+  local rem=(#data)%64
+  local pad=(rem<=56) and (56-rem) or (120-rem)
+  data=data..string.rep("\0",pad)
+  local bitLen=len*8
+  local hi=math.floor(bitLen/4294967296)
+  local lo=bitLen-hi*4294967296
+  local function u32(n) return bit32.band(n,0xffffffff) end
+  local function add(...) local r=0; for i=1,select("#",...) do r=r+select(i,...); if r>=4294967296 then r=r-4294967296 end end; return r end
+  local function rotr(x,n) return bit32.rshift(x,n)+bit32.lshift(x,32-n) end
+  local function read32(i) return u32(data:byte(i)*16777216+data:byte(i+1)*65536+data:byte(i+2)*256+data:byte(i+3)) end
+  for base=1,#data,64 do
+    local W={}
+    for i=0,15 do W[i]=read32(base+i*4) end
+    for i=16,63 do
+      local x=W[i-15]; local y=W[i-2]
+      local s0=bit32.bxor(rotr(x,7),rotr(x,18),bit32.rshift(x,3))
+      local s1=bit32.bxor(rotr(y,17),rotr(y,19),bit32.rshift(y,10))
+      W[i]=add(W[i-16],s0,W[i-7],s1)
+    end
+    local a,b,d,e,f,g,h=H[1],H[2],H[4],H[5],H[6],H[7],H[8]
+    local cc=H[3]
+    for i=0,63 do
+      local S1=bit32.bxor(rotr(e,6),rotr(e,11),rotr(e,25))
+      local ch=bit32.bxor(bit32.band(e,f),bit32.band(bit32.bnot(e),g))
+      local temp1=add(h,S1,ch,K[i+1],W[i])
+      local S0=bit32.bxor(rotr(a,2),rotr(a,13),rotr(a,22))
+      local maj=bit32.bxor(bit32.band(a,b),bit32.band(a,cc),bit32.band(b,cc))
+      local temp2=add(S0,maj)
+      h=g; g=f; f=e; e=add(d,temp1); d=cc; cc=b; b=a; a=add(temp1,temp2)
+    end
+    H[1]=add(H[1],a); H[2]=add(H[2],b); H[3]=add(H[3],cc); H[4]=add(H[4],d)
+    H[5]=add(H[5],e); H[6]=add(H[6],f); H[7]=add(H[7],g); H[8]=add(H[8],h)
+  end
+  local out={}
+  for i=1,8 do
+    local x=H[i]
+    out[#out+1]=string.format("%08x",x)
+  end
+  return table.concat(out)
+end
+
+local function fileSha256(path)
+  local h=fs.open(path,"rb"); if not h then return nil end
+  local d=h.readAll(); h.close()
+  return sha256(d)
+end
+
+local function lockData() return readJson(LOCK_FILE,{version=1,packages={}}) end
+local function saveLock(v) return writeJson(LOCK_FILE,v) end
+
+local function parseConstraint(c)
+  c=tostring(c or "*")
+  local out={}
+  for op,ver in c:gmatch("([<>~=%^]*)%s*v?([%d%.]+)") do
+    out[#out+1]={op=op,version=ver}
+  end
+  if #out==0 and c~="*" then out[1]={op="=",version=c:gsub("^v","")} end
+  return out
+end
+
+local function satisfies(version,constraint)
+  if not constraint or constraint=="" or constraint=="*" then return true end
+  local vn=versionNumber(version)
+  for _,r in ipairs(parseConstraint(constraint)) do
+    local n=versionNumber(r.version)
+    local op=r.op
+    if op==">" and not (vn>n) then return false end
+    if op==">=" and not (vn>=n) then return false end
+    if op=="<" and not (vn<n) then return false end
+    if op=="<=" and not (vn<=n) then return false end
+    if op=="=" or op=="" then if vn~=n then return false end end
+    if op=="~" and not (vn>=n and vn<math.floor(n/1000)*1000+1000) then return false end
+    if op=="^" and not (vn>=n and vn<math.floor(n/1000000)*1000000+1000000) then return false end
+  end
+  return true
+end
+
+local function dependencySpec(d)
+  if type(d)=="string" then return d,"*" end
+  if type(d)=="table" then return d.name or d[1],d.version or d.constraint or "*" end
+  return nil,"*"
+end
+
+local function manifestDependencies(m)
+  local result={}
+  if type(m.dependencies)=="table" then
+    for k,v in pairs(m.dependencies) do
+      local n,c=dependencySpec(type(k)=="number" and v or {name=k,version=v})
+      if n then result[#result+1]={name=n,constraint=c} end
+    end
+  end
+  return result
+end
+
+local function packageCapabilities(files)
+  local caps={}
+  local seen={}
+  local function add(x) if not seen[x] then seen[x]=true; caps[#caps+1]=x end end
+  for _,f in ipairs(files or {}) do
+    local s=tostring(f.data or ""):lower()
+    if s:find("fs%.") or s:find("io%.open") then add("filesystem") end
+    if s:find("http%.") or s:find("websocket") then add("network") end
+    if s:find("redstone%.") or s:find("rs%.") then add("redstone") end
+    if s:find("rednet%.") then add("rednet") end
+    if s:find("peripheral%.") then add("peripherals") end
+    if s:find("turtle%.") then add("turtle/world") end
+    if s:find("commands%.") then add("Minecraft commands") end
+    if s:find("shell%.") or s:find("os%.run") then add("program execution") end
+    if s:find("settings%.") then add("settings") end
+    if s:find("multishell%.") then add("multishell") end
+    if s:find("disk%.") then add("disk") end
+    if s:find("term%.") or s:find("window%.") then add("terminal UI") end
+  end
+  return caps
+end
+
+local function capabilityText(caps)
+  return (#caps==0 and "none" or table.concat(caps,", "))
+end
+
 
 local function logLine(path,m)
   ensureDir()
@@ -313,60 +462,292 @@ local function malwareWarning(repoUrl)
     if k==keys["1"] then ones=ones+1; print("Override confirmation "..ones.."/20"); if ones>=20 then return true end else ones=0 end
   end
 end
-local function install(name,seen)
-  logLine(LOG_FILE,"INSTALL "..tostring(name).." on "..computerType())
-  seen=seen or {}; if seen[name] then return true end; seen[name]=true
-  local e,v=find(name); if not e then return fail(v) end
-  local m,mp,er=manifest(e._repo,e,v); if not m then return fail(mp) end
+
+local function collectPlan(name,plan,visiting,rootConstraint)
+  plan=plan or {}; visiting=visiting or {}
+  if visiting[name] then return nil,"circular dependency detected: "..name end
+  local existing=plan[name]
+  local e,v=find(name); if not e then return nil,"package not found: "..name end
+  local m,mp,er=manifest(e._repo,e,v); if not m then return nil,mp end
+  if rootConstraint and not satisfies(m.version,rootConstraint) then
+    return nil,name.." "..tostring(m.version).." does not satisfy "..tostring(rootConstraint)
+  end
+  if existing then
+    if existing.version~=m.version then return nil,"dependency version conflict for "..name end
+    return plan
+  end
   for _,f in ipairs(m.files or {}) do
-    if not safePath(f.path or f.source) then return fail("unsafe package path: "..tostring(f.path or f.source)) end
+    if not safePath(f.path or f.source) then return nil,"unsafe package path: "..tostring(f.path or f.source) end
   end
-  if computerType()=="pocket" and not isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is not a pocket version") end
-  if computerType()=="computer" and isPocketVersion(m.version) then return fail("version "..tostring(m.version).." is pocket-only") end
-  for _,d in ipairs(m.dependencies or {}) do if not install(d,seen) then return false end end
-  local d=db(); local old=d.packages[name]
-  if old and old.version==m.version and old.target==computerType() then print(name.." "..m.version.." is already installed.") return true end
-  print("Scanning package with PKG antivirus...")
-  local downloaded={}
-  for _,f in ipairs(m.files or {}) do
-    local source=f.source or f.path
-    local path=f.path or f.source
-    local s,ce=get(url(e._repo._base or e._repo.url,source))
-    if not s then return fail("failed to scan "..tostring(path)..": "..tostring(ce)) end
-    downloaded[#downloaded+1]={path=path,data=s}
+  if computerType()=="pocket" and not isPocketVersion(m.version) then return nil,"version "..tostring(m.version).." is not a pocket version" end
+  if computerType()=="computer" and isPocketVersion(m.version) then return nil,"version "..tostring(m.version).." is pocket-only" end
+  visiting[name]=true
+  local deps=manifestDependencies(m)
+  for _,dep in ipairs(deps) do
+    if not dep.name or dep.name=="" then return nil,"invalid dependency in "..name end
+    local ok,why=collectPlan(dep.name,plan,visiting,dep.constraint)
+    if not ok then return nil,why end
   end
-  local clean,reason=antivirusScan(downloaded)
-  if not clean and not malwareWarning(e._repo.url) then return false end
-  print("Package scan complete.")
-  print("Installing "..name.." "..tostring(m.version).." for "..computerType().."...")
-  local backup=backupPackageFiles(name,m.files)
-  if backup then print("Backup created: "..backup) end
-  for _,f in ipairs(downloaded) do
-    local path=f.path
-    local s=f.data
-    local safe=safePath(path)
-    if not safe then if backup then restoreBackup(backup) end; return fail("unsafe package path: "..tostring(path)) end
-    local p=fs.getDir(path); if p~="" and not fs.exists(p) then fs.makeDir(p) end
-    local h=fs.open(safe,"w")
-    if not h then if backup then restoreBackup(backup) end; return fail("cannot write "..path) end
-    h.write(s); h.close()
-  end
-  d.packages[name]={version=m.version,target=computerType(),files=m.files or {},repository=e._repo.name,backup=backup}
-  if backup then d.packages[name].backup=backup end
-  saveDb(d); print("Installed "..name.." "..tostring(m.version).."."); return true
+  visiting[name]=nil
+  plan[name]={name=name,entry=e,version=v,manifest=m,manifestPath=mp,deps=deps}
+  return plan
 end
-local function remove(name)
+
+local function downloadPlan(plan)
+  local total=0
+  for _,p in pairs(plan) do
+    p.files={}
+    for _,f in ipairs(p.manifest.files or {}) do
+      local source=f.source or f.path
+      local path=f.path or f.source
+      local s,ce=get(url(p.entry._repo._base or p.entry._repo.url,source))
+      if not s then return nil,"failed to download "..p.name.."/"..tostring(path)..": "..tostring(ce) end
+      if #s>MAX_PACKAGE_FILE_SIZE then return nil,"file too large: "..tostring(path) end
+      total=total+#s
+      if total>MAX_PACKAGE_TOTAL_SIZE then return nil,"package dependency tree exceeds size limit" end
+      local actual=sha256(s)
+      local expected=f.sha256 or f.hash
+      if expected and actual and tostring(expected):lower()~=tostring(actual):lower() then
+        return nil,"SHA-256 mismatch for "..p.name.."/"..tostring(path)
+      end
+      p.files[#p.files+1]={path=path,data=s,sha256=actual}
+    end
+    local manifestHash=sha256(textutils.serialiseJSON(p.manifest))
+    if p.manifest.sha256 and manifestHash and tostring(p.manifest.sha256):lower()~=manifestHash:lower() then
+      return nil,"manifest SHA-256 mismatch for "..p.name
+    end
+    p.capabilities=packageCapabilities(p.files)
+  end
+  return true
+end
+
+local function orderedPlan(plan)
+  local out={}
+  local done={}
+  local function visit(n)
+    if done[n] then return end
+    local p=plan[n]
+    for _,d in ipairs(p.deps or {}) do if plan[d.name] then visit(d.name) end end
+    done[n]=true; out[#out+1]=p
+  end
+  for n in pairs(plan) do visit(n) end
+  return out
+end
+
+local function scanPlan(plan)
+  for _,p in pairs(plan) do
+    print("Scanning "..p.name.." "..tostring(p.manifest.version).."...")
+    local clean,reason=antivirusScan(p.files)
+    if not clean then
+      if not malwareWarning(p.entry._repo.url) then return false,"cancelled by user" end
+    end
+  end
+  return true
+end
+
+local function install(name)
+  logLine(LOG_FILE,"INSTALL TRANSACTION "..tostring(name).." on "..computerType())
+  local plan,err=collectPlan(name); if not plan then return fail(err) end
+  local d=db()
+  local lock=lockData()
+  local order=orderedPlan(plan)
+  print("Preparing "..#order.." package(s)...")
+  local ok,why=downloadPlan(plan)
+  if not ok then return fail(why) end
+  local scanned,scanWhy=scanPlan(plan)
+  if not scanned then return false end
+  print("All packages passed the pre-install scan.")
+  local backups={}
+  for _,p in ipairs(order) do
+    local old=d.packages[p.name]
+    if old and old.version==p.manifest.version and old.target==computerType() then
+      print(p.name.." "..p.manifest.version.." is already installed.")
+    else
+      local backup=backupPackageFiles(p.name,p.manifest.files)
+      backups[#backups+1]={name=p.name,path=backup}
+      if backup then print("Backup created for "..p.name..": "..backup) end
+    end
+  end
+  local written={}
+  for _,p in ipairs(order) do
+    local old=d.packages[p.name]
+    if not (old and old.version==p.manifest.version and old.target==computerType()) then
+      for _,f in ipairs(p.files) do
+        local safe=safePath(f.path)
+        if not safe then
+          for _,b in ipairs(backups) do if b.path then restoreBackup(b.path) end end
+          return fail("unsafe package path during commit: "..tostring(f.path))
+        end
+        local dir=fs.getDir(safe)
+        if dir~="" and not fs.exists(dir) then fs.makeDir(dir) end
+        local h=fs.open(safe,"w")
+        if not h then
+          for _,b in ipairs(backups) do if b.path then restoreBackup(b.path) end end
+          for _,w in ipairs(written) do if fs.exists(w) then fs.delete(w) end end
+          return fail("cannot write "..tostring(safe))
+        end
+        h.write(f.data); h.close()
+        written[#written+1]=safe
+      end
+      local hashes={}
+      for _,f in ipairs(p.files) do hashes[f.path]=f.sha256 end
+      d.packages[p.name]={
+        version=p.manifest.version,target=computerType(),files=p.manifest.files or {},
+        repository=p.entry._repo.name,backup=(backups[#backups].name==p.name and backups[#backups].path or nil),
+        sha256=hashes,capabilities=p.capabilities or {},author=p.manifest.author,
+        license=p.manifest.license,homepage=p.manifest.homepage,readme=p.manifest.readme,
+        changelog=p.manifest.changelog
+      }
+      lock.packages[p.name]={version=p.manifest.version,target=computerType(),repository=p.entry._repo.name,sha256=hashes}
+    end
+  end
+  saveDb(d); saveLock(lock)
+  print("Transaction committed successfully.")
+  print("Installed "..name.." and "..tostring(#order-1).." dependency/dependencies.")
+  return true
+end
+
+
+local function remove(name,force)
   logLine(LOG_FILE,"REMOVE "..tostring(name))
-  local d=db(); local p=d.packages[name]; if not p then return fail("package is not installed: "..name) end
+  local d=db(); local p=d.packages[name]
+  if not p then return fail("package is not installed: "..name) end
+  local dependents={}
+  for n,x in pairs(d.packages or {}) do
+    if n~=name then
+      for _,dep in ipairs(x.dependencies or {}) do if dependencySpec(dep)==name then dependents[#dependents+1]=n end end
+    end
+  end
+  if #dependents>0 and not force then
+    print("Cannot remove "..name..". Installed packages depend on it:")
+    for _,n in ipairs(dependents) do print("  "..n) end
+    print("Use: pkg remove "..name.." --force")
+    return false
+  end
   local backup=backupPackageFiles(name,p.files)
   if backup then print("Backup created: "..backup) end
   for _,f in ipairs(p.files or {}) do
     local x=safePath(f.path or f.source)
     if x and fs.exists(x) then fs.delete(x) end
   end
-  p.backup=backup
-  d.packages[name]=nil; saveDb(d); print("Removed "..name..".")
+  d.packages[name]=nil
+  local lock=lockData(); lock.packages[name]=nil
+  saveDb(d); saveLock(lock)
+  print("Removed "..name..".")
+  return true
 end
+
+local function verifyPackage(name)
+  local d=db(); local p=d.packages[name]
+  if not p then return fail("package is not installed: "..name) end
+  local good=true; local count=0
+  for _,f in ipairs(p.files or {}) do
+    local path=safePath(f.path or f.source)
+    if not path or not fs.exists(path) then print("MISSING: "..tostring(f.path)); good=false
+    elseif fs.isDir(path) then print("INVALID: "..tostring(f.path).." is a directory"); good=false
+    else
+      count=count+1
+      local actual=fileSha256(path)
+      local expected=p.sha256 and p.sha256[f.path]
+      if expected and actual~=expected then print("MODIFIED: "..tostring(f.path)); good=false end
+    end
+  end
+  if good then print("✓ "..name.." verified ("..count.." file(s)).") else print("✗ "..name.." failed verification.") end
+  return good
+end
+
+local function audit()
+  local d=db(); local n=0
+  for name in pairs(d.packages or {}) do n=n+1; print("Auditing "..name.."..."); verifyPackage(name) end
+  if n==0 then print("No installed packages.") end
+end
+
+local function inspectPackage(name)
+  local e,v=find(name); if not e then return fail(v) end
+  local m,mp=manifest(e._repo,e,v); if not m then return fail(mp) end
+  print("Name: "..tostring(m.name or name))
+  print("Version: "..tostring(m.version or v))
+  print("Repository: "..tostring(e._repo.name))
+  print("Target: "..computerType())
+  print("Author: "..tostring(m.author or "Unknown"))
+  print("License: "..tostring(m.license or "Not specified"))
+  print("Homepage: "..tostring(m.homepage or "Not specified"))
+  print("Description: "..tostring(m.description or ""))
+  print("Dependencies: "..tostring(#manifestDependencies(m)))
+  print("Files: "..tostring(#(m.files or {})))
+  print("Readme: "..tostring(m.readme or "Not specified"))
+  print("Changelog: "..tostring(m.changelog or "Not specified"))
+  print("Manifest: "..tostring(mp))
+  local temp={}; for _,f in ipairs(m.files or {}) do
+    local s=get(url(e._repo._base or e._repo.url,f.source or f.path))
+    if s then temp[#temp+1]={path=f.path or f.source,data=s} end
+  end
+  print("Capabilities: "..capabilityText(packageCapabilities(temp)))
+  local clean,reason=antivirusScan(temp)
+  print("Antivirus: "..(clean and "CLEAN" or ("FLAGGED: "..tostring(reason))))
+end
+
+local function testPackage(name)
+  local plan,err=collectPlan(name); if not plan then return fail(err) end
+  local ok,why=downloadPlan(plan); if not ok then return fail(why) end
+  local clean,reason=scanPlan(plan)
+  print("Manifest/dependency validation: PASS")
+  print("Path validation: PASS")
+  print("Download validation: PASS")
+  print("Antivirus: "..(clean and "PASS" or "FLAGGED"))
+  if not clean then print("Reason: "..tostring(reason)) end
+  return clean
+end
+
+local function doctor()
+  print("CC PKG Doctor")
+  print("Version: "..PKG_VERSION)
+  local checks={
+    {"config",CONFIG_FILE},{"database",DB_FILE},{"lockfile",LOCK_FILE}
+  }
+  for _,x in ipairs(checks) do print((fs.exists(x[2]) and "✓ " or "⚠ ")..x[1]..": "..x[2]) end
+  print("Antivirus signatures: "..(get(AV_REPO.."signatures.json") and "✓ available" or "⚠ unavailable"))
+  local c=config(); for _,r in ipairs(c.repositories or {}) do local i,e=index(r); print((i and "✓ " or "✗ ").."repository "..tostring(r.name)..(i and "" or ": "..tostring(e))) end
+  local d=db(); for n in pairs(d.packages or {}) do verifyPackage(n) end
+  print("Doctor check complete.")
+end
+
+local function clean()
+  if not fs.exists(BACKUP_DIR) then print("Nothing to clean."); return true end
+  local removed=0
+  for _,n in ipairs(fs.list(BACKUP_DIR)) do
+    local p=BACKUP_DIR.."/"..n
+    fs.delete(p); removed=removed+1
+  end
+  local tmp=CONFIG_DIR.."/pkg.new"; if fs.exists(tmp) then fs.delete(tmp) end
+  print("Removed "..removed.." backup/temp item(s).")
+  return true
+end
+
+local function autoremove()
+  local d=db(); local needed={}
+  for _,p in pairs(d.packages or {}) do
+    for _,dep in ipairs(p.dependencies or {}) do local n=dependencySpec(dep); if n then needed[n]=true end end
+  end
+  local removed=0
+  for n in pairs(d.packages or {}) do
+    if not needed[n] then
+      local ok=remove(n,false)
+      if ok then removed=removed+1 end
+    end
+  end
+  print("Autoremove complete. Removed "..removed.." package(s).")
+end
+
+local function recovery()
+  print("CC PKG Recovery")
+  if fs.exists("/pkg") then print("✓ /pkg exists") else print("✗ /pkg missing") end
+  if fs.exists(DB_FILE) then print("✓ installed database exists") else print("⚠ installed database missing") end
+  if fs.exists(LOCK_FILE) then print("✓ lockfile exists") else print("⚠ lockfile missing") end
+  print("Use 'pkg restore <package>' for package backups.")
+  print("Use 'pkg self-update' to restore the PKG client from the official repository.")
+end
+
 local function search(q)
   q=(q or ""):lower(); local n=0
   for _,r in ipairs(config().repositories or {}) do local i=index(r)
@@ -392,10 +773,13 @@ local function info(name)
   print("Name: "..tostring(m.name or name))
   print("Version: "..tostring(m.version or v))
   print("Target: "..computerType())
-  print("Pocket version: "..tostring(isPocketVersion(m.version or v)))
+  print("Repository: "..tostring(e._repo.name))
   print("Author: "..tostring(m.author or "Unknown"))
+  print("License: "..tostring(m.license or "Not specified"))
   print("Description: "..tostring(m.description or ""))
-  print("Manifest: "..mp)
+  print("Dependencies: "..tostring(#manifestDependencies(m)))
+  print("Files: "..tostring(#(m.files or {})))
+  print("Manifest: "..tostring(mp))
 end
 local function repos()
   local c=config()
@@ -453,13 +837,14 @@ local function repoUpdate()
   for _,r in ipairs(c.repositories or {}) do
     local i,e=index(r)
     if i then
-      print((r.name or "unnamed").." - OK")
+      local packageCount=0; for _ in pairs(i.packages or {}) do packageCount=packageCount+1 end
+      print((r.name or "unnamed").." - ONLINE | "..packageCount.." package(s)")
       count=count+1
     else
-      print((r.name or "unnamed").." - ERROR: "..tostring(e))
+      print((r.name or "unnamed").." - OFFLINE/INVALID: "..tostring(e))
     end
   end
-  print("Checked "..count.." repository/repositories successfully.")
+  print("Healthy repositories: "..count.."/"..tostring(#(c.repositories or {})))
 end
 local function checkForUpdate()
   local api="https://api.github.com/repos/CubeHub-studio/CC-PKG/releases/latest"
@@ -529,22 +914,28 @@ local function help()
   print("CC PKG "..PKG_VERSION)
   print("Logs: /.ccpkg/pkg.log")
   print("Errors: /.ccpkg/error.log")
-  print("Version target rule:")
-  print("  * Versions containing 'pocket' = pocket computer")
-  print("  * All other versions = regular computer")
-  print("  search <query>   Search packages")
-  print("  info <package>   Show selected version/target")
-  print("  install <pkg>    Install highest compatible version")
-  print("  remove <pkg>     Remove package")
-  print("  update           Refresh repository metadata")
-  print("  upgrade          Upgrade installed packages")
-  print("  list             List installed packages")
-  print("  self-update      Update CC PKG itself")
-  print("  restore <pkg>    Restore the latest package backup")
-  print("  repo list        List repositories")
-  print("  repo add <url>          Add a package repository")
-  print("  repo remove <name>       Remove a package repository")
-  print("  repo update              Check configured repositories")
+  print("Lockfile: /.ccpkg/pkg-lock.json")
+  print("  search <query>            Search packages")
+  print("  info <package>            Show package metadata")
+  print("  inspect <package>         Inspect files, capabilities and antivirus")
+  print("  test <package>            Validate without installing")
+  print("  install <package>         Install package and dependencies transactionally")
+  print("  remove <package> [--force] Remove package")
+  print("  verify <package>          Verify installed file hashes")
+  print("  audit                     Verify all installed packages")
+  print("  list                      List installed packages")
+  print("  update                    Refresh repository metadata")
+  print("  upgrade                   Upgrade installed packages")
+  print("  autoremove                Remove packages no longer needed")
+  print("  clean                     Remove backups and temporary data")
+  print("  doctor                    Diagnose PKG and repository health")
+  print("  recovery                  Show PKG recovery status")
+  print("  self-update               Update CC PKG itself")
+  print("  restore <package>         Restore a package backup")
+  print("  repo list                 List repositories")
+  print("  repo add <url>            Add a package repository")
+  print("  repo remove <name>        Remove a package repository")
+  print("  repo update               Check repository health")
 end
 ensureDir()
 local a={...}; local c=a[1]
@@ -553,8 +944,15 @@ if not c or c=="help" then help()
 elseif c=="search" then search(table.concat(a," ",2))
 elseif c=="info" and a[2] then info(a[2])
 elseif c=="install" and a[2] then install(a[2])
-elseif c=="remove" and a[2] then remove(a[2])
-elseif c=="restore" and a[2] then restorePackage(a[2])
+elseif c=="remove" and a[2] then remove(a[2],a[3]=="--force")
+elseif c=="inspect" and a[2] then inspectPackage(a[2])
+elseif c=="test" and a[2] then testPackage(a[2])
+elseif c=="verify" and a[2] then verifyPackage(a[2])
+elseif c=="audit" then audit()
+elseif c=="doctor" then doctor()
+elseif c=="autoremove" then autoremove()
+elseif c=="clean" then clean()
+elseif c=="recovery" then recovery()
 elseif c=="list" then list()
 elseif c=="repo" and a[2]=="list" then repos()
 elseif c=="repo" and a[2]=="add" and a[3] then repoAdd(a[3])
