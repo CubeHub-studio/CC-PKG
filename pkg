@@ -378,10 +378,7 @@ local function deviceMatches(wanted)
   for _,want in ipairs(wanted) do
     want=normalize(want)
     for _,actual in ipairs(have) do
-      if want==actual
-        or (want=="computer" and (actual=="computer" or actual=="advanced_computer"))
-        or (want=="pocket_computer" and (actual=="pocket_computer" or actual=="advanced_pocket_computer" or actual=="noisy_pocket_computer"))
-        or (want=="advanced_pocket_computer" and (actual=="advanced_pocket_computer" or actual=="noisy_pocket_computer")) then
+      if want==actual then
         return true
       end
     end
