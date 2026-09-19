@@ -892,6 +892,8 @@ local function inspectPackage(name)
   print("Repository: "..tostring(e._repo.name))
   print("Target: "..computerType())
   print("Detected devices: "..table.concat(deviceIds(),","))
+  local supported=versionEntry(e,v) and loadDeviceData(e._repo,e,v)
+  if supported then print("Supported devices: "..table.concat(supported.devices or supported.device or {},",")) end
   print("Author: "..tostring(m.author or "Unknown"))
   print("License: "..tostring(m.license or "Not specified"))
   print("Homepage: "..tostring(m.homepage or "Not specified"))
