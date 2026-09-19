@@ -1240,7 +1240,9 @@ local function repoUpdate()
       print((r.name or "unnamed").." - OFFLINE/INVALID: "..tostring(e))
     end
   end
-  print("Healthy repositories: "..count.."/"..tostring(#(c.repositories or {})))
+  local total=#(c.repositories or {})
+  print("Healthy repositories: "..count.."/"..tostring(total))
+  return count==total
 end
 local function checkForUpdate()
   local api="https://api.github.com/repos/CubeHub-studio/CC-PKG/releases/latest"
