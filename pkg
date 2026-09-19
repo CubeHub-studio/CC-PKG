@@ -204,7 +204,7 @@ local function config()
   if type(c)~="table" then
     c={repositories={
       {name="official",url=DEFAULT_REPO,builtin=true},
-      {name="presets",url=PRESET_REPO,builtin=true}
+      {name="presets",url=PRESET_REPO,builtin=true,trusted=true}
     }}
     writeJson(CONFIG_FILE,c)
   else
@@ -212,10 +212,10 @@ local function config()
     local hasOfficial,hasPresets=false,false
     for _,r in ipairs(c.repositories) do
       if r.name=="official" then hasOfficial=true end
-      if r.name=="presets" or r.url==PRESET_REPO then hasPresets=true; r.name="presets"; r.url=PRESET_REPO; r.builtin=true end
+      if r.name=="presets" or r.url==PRESET_REPO then hasPresets=true; r.name="presets"; r.url=PRESET_REPO; r.builtin=true; r.trusted=true end
     end
     if not hasOfficial then table.insert(c.repositories,1,{name="official",url=DEFAULT_REPO,builtin=true}) end
-    if not hasPresets then c.repositories[#c.repositories+1]={name="presets",url=PRESET_REPO,builtin=true} end
+    if not hasPresets then c.repositories[#c.repositories+1]={name="presets",url=PRESET_REPO,builtin=true,trusted=true} end
     writeJson(CONFIG_FILE,c)
   end
   return c
@@ -591,6 +591,10 @@ local function antivirusScan(files)
   end
   return true
 end
+
+local function trustedRepository(repo)
+  return type(repo)=="table" and (repo.trusted==true or (repo.builtin==true and repo.url==PRESET_REPO))
+end
 local function malwareWarning(repoUrl)
   print("")
   print("WARNING: This package has been flagged as malware. If you believe this is safe and an antivrus false positive has occured then click 1 20 times, if you wish to exit this screen with no changes made to this computer then press 2.")
@@ -685,10 +689,14 @@ end
 
 local function scanPlan(plan)
   for _,p in pairs(plan) do
-    print("Scanning "..p.name.." "..tostring(p.manifest.version).."...")
-    local clean,reason=antivirusScan(p.files)
-    if not clean then
-      if not malwareWarning(p.entry._repo.url) then return false,"cancelled by user" end
+    if trustedRepository(p.entry._repo) then
+      print("Trusted repository: "..tostring(p.entry._repo.name or p.entry._repo.url).." (antivirus scan skipped)")
+    else
+      print("Scanning "..p.name.." "..tostring(p.manifest.version).."...")
+      local clean,reason=antivirusScan(p.files)
+      if not clean then
+        if not malwareWarning(p.entry._repo.url) then return false,"cancelled by user" end
+      end
     end
   end
   return true
