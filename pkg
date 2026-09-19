@@ -1,4 +1,4 @@
--- CC PKG 0.9.0
+-- CC PKG 0.9.1
 -- Package ownership is tracked so removal cleans installed files and empty directories while preserving shared files.
 -- Versioned packages may use packages/<name>/versions/<version>/ with a devicedata file.
 -- Legacy version-name targeting remains supported for backward compatibility.
@@ -298,9 +298,32 @@ local function url(base,path)
 end
 local function get(u)
   if not http then return nil,"HTTP API unavailable" end
-  local ok,r=pcall(http.get,u,{["User-Agent"]="CC-PKG/0.4.0"})
-  if not ok or not r then logLine(ERROR_LOG_FILE,"HTTP request failed: "..tostring(u).." | "..tostring(r)); return nil,"request failed: "..tostring(r) end
-  local s=r.readAll(); r.close(); logLine(LOG_FILE,"GET "..tostring(u)); return s
+
+  local ok,r,e,resp=pcall(http.get,u,{["User-Agent"]="CC-PKG/"..PKG_VERSION})
+
+  if not ok then
+    local msg="HTTP exception: "..tostring(r)
+    logLine(ERROR_LOG_FILE,"HTTP request failed: "..tostring(u).." | "..msg)
+    return nil,msg
+  end
+
+  if not r then
+    local msg=tostring(e or "unknown HTTP error")
+    if resp and type(resp.getResponseCode)=="function" then
+      local code,reason=pcall(resp.getResponseCode)
+      if code then
+        msg=msg.." (HTTP "..tostring(reason)..")"
+      end
+      pcall(resp.close)
+    end
+    logLine(ERROR_LOG_FILE,"HTTP request failed: "..tostring(u).." | "..msg)
+    return nil,msg
+  end
+
+  local s=r.readAll()
+  r.close()
+  logLine(LOG_FILE,"GET "..tostring(u))
+  return s
 end
 local function index(repo)
   local b=repo.url; if b:sub(-1)~="/" then b=b.."/" end
