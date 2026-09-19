@@ -244,7 +244,7 @@ local function backupPackageFiles(name,files)
   local root=newBackupRoot(name)
   local count=0
   for _,f in ipairs(files or {}) do
-    local path=f.path or f.source
+    local path=type(f)=="string" and f or (f.path or f.source)
     if fs.exists("/"..tostring(path):gsub("^/","")) then
       if not backupFile(path,root) then return nil end
       count=count+1
