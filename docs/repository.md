@@ -87,10 +87,18 @@ Example:
   "version": "1.0.0",
   "author": "Your Name",
   "description": "A small example package",
+  "license": "MIT",
+  "homepage": "https://example.com/",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md",
+  "dependencies": {
+    "library": ">=1.0.0 <2.0.0"
+  },
   "files": [
     {
       "path": "hello",
-      "source": "packages/hello/hello"
+      "source": "packages/hello/hello",
+      "sha256": "PUT_THE_FILE_SHA256_HERE"
     }
   ]
 }
@@ -247,9 +255,9 @@ Example:
   "version": "1.0.0",
   "author": "Your Name",
   "description": "An application that needs another package",
-  "dependencies": [
-    "library"
-  ],
+  "dependencies": {
+    "library": ">=1.0.0 <2.0.0"
+  },
   "files": [
     {
       "path": "my-app",
@@ -259,7 +267,49 @@ Example:
 }
 ~~~
 
-When the user runs `pkg install my-app`, CC PKG installs `library` first and then `my-app`.
+When the user runs `pkg install my-app`, CC PKG resolves the dependency tree, checks version constraints, downloads the complete tree, scans it before writing anything, verifies any supplied SHA-256 hashes, then commits the installation transaction.
+
+## Package integrity and metadata
+
+Each file may optionally include a SHA-256 hash:
+
+~~~json
+{
+  "path": "hello",
+  "source": "packages/hello/hello",
+  "sha256": "..."
+}
+~~~
+
+CC PKG verifies supplied hashes before installation and records downloaded hashes in `/.ccpkg/pkg-lock.json`. The lock file records exact installed versions, repositories, targets and file hashes.
+
+Optional manifest metadata includes:
+
+~~~json
+{
+  "license": "MIT",
+  "homepage": "https://example.com/",
+  "readme": "README.md",
+  "changelog": "CHANGELOG.md"
+}
+~~~
+
+## Client diagnostics
+
+Useful commands include:
+
+~~~text
+pkg inspect hello
+pkg test hello
+pkg verify hello
+pkg audit
+pkg doctor
+pkg recovery
+pkg clean
+pkg autoremove
+~~~
+
+`pkg test` validates a package and its dependency tree without installing it. `pkg inspect` shows metadata, detected capabilities and antivirus status. `pkg verify` checks installed files against recorded hashes. `pkg audit` checks every installed package. `pkg doctor` checks PKG state and repository health.
 
 ## Updating packages
 
@@ -296,7 +346,9 @@ If `pkg repo add` fails, check that:
 
 ## Security
 
-A package can contain Lua code that runs on a user's CC:Tweaked computer.
+A package can contain Lua code that runs on a user's CC:Tweaked computer. CC PKG now performs pre-install antivirus scanning, path validation, dependency-tree validation, optional SHA-256 verification, and transactional installation with rollback backups.
+
+The scanner reports suspicious capabilities such as filesystem access, network access, commands, redstone, turtles, peripherals and program execution. These are capability indicators, not proof that a package is malicious. CC:Tweaked also supports custom peripherals, so static scanning cannot prove arbitrary Lua is safe. See the official CC:Tweaked documentation for the API and peripheral model.
 
 Only install repositories and packages you trust.
 
