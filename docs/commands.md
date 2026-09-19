@@ -1,6 +1,6 @@
 # CC-PKG Commands
 
-Complete command reference for CC-PKG 0.9.0.
+Complete command reference for CC-PKG 0.9.1.
 
 ## Package commands
 
@@ -20,6 +20,21 @@ Complete command reference for CC-PKG 0.9.0.
 | pkg restore <package> | Restore a package from its backup. |
 | pkg clean | Remove CC-PKG backups and temporary data. |
 
+## Information and maintenance tools
+
+| Command | Description |
+|---|---|
+| `pkg version` | Show the CC-PKG client version. |
+| `pkg device` | Show detected CC:Tweaked device types. |
+| `pkg sources [package]` | Show configured repositories or the source of an installed package. |
+| `pkg files <package>` | List files owned by an installed package. |
+| `pkg depends <package>` | Show an installed package's dependencies. |
+| `pkg why <package>` | Show installed packages that depend on a package. |
+| `pkg capabilities <package>` | Show recorded package capabilities. |
+| `pkg lock` | Show the installed package lock state. |
+| `pkg outdated` | Find installed packages with newer compatible versions. |
+| `pkg check [package]` | Verify one package or audit all installed packages. |
+
 ## Repository commands
 
 | Command | Description |
@@ -38,6 +53,10 @@ Complete command reference for CC-PKG 0.9.0.
 | pkg recovery | Show CC-PKG recovery status and recovery options. |
 | pkg self-update | Update the CC-PKG client itself. |
 | pkg help | Show a link to this command reference. |
+
+## Built-in repositories
+
+CC-PKG automatically configures the official repository and the CC-PKG Preset Repository. Built-in repositories cannot be removed.
 
 ## Version and device selection
 
