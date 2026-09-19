@@ -1,0 +1,17 @@
+{
+  "name": "moon-bios",
+  "version": "1.2.0",
+  "description": "Moon BIOS 1.2 Advance",
+  "author": "CubeHub Studio",
+  "dependencies": [],
+  "files": [
+    {
+      "source": "https://raw.githubusercontent.com/CubeHub-studio/CC-Moon-BIOS/main/versions/v1.2-advance/startup",
+      "path": "startup"
+    },
+    {
+      "source": "https://raw.githubusercontent.com/CubeHub-studio/CC-Moon-BIOS/main/versions/v1.2-advance/updatemoonbios",
+      "path": "updatemoonbios"
+    }
+  ]
+}
