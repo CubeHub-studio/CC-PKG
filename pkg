@@ -1,4 +1,5 @@
 -- CC PKG 0.8.0
+-- Package ownership is tracked so removal cleans installed files and empty directories while preserving shared files.
 -- Version names containing "pocket" are pocket-only.
 -- All other version names are for regular computers.
 
@@ -608,6 +609,20 @@ local function install(name)
       for _,f in ipairs(p.files) do hashes[f.path]=f.sha256 end
       d.packages[p.name]={
         version=p.manifest.version,target=computerType(),files=p.manifest.files or {},
+        ownedFiles=(function()
+          local seen={}
+          local out={}
+          if old and old.ownedFiles then
+            for _,path in ipairs(old.ownedFiles) do
+              if not seen[path] then seen[path]=true; out[#out+1]=path end
+            end
+          end
+          for _,f in ipairs(p.manifest.files or {}) do
+            local path=f.path or f.source
+            if path and not seen[path] then seen[path]=true; out[#out+1]=path end
+          end
+          return out
+        end)(),
         repository=p.entry._repo.name,backup=(function() for _,b in ipairs(backups) do if b.name==p.name then return b.path end end end)(),
         dependencies=copyValue(p.deps or {}),explicit=(p.name==name),
         sha256=hashes,capabilities=p.capabilities or {},author=p.manifest.author,
@@ -623,6 +638,70 @@ local function install(name)
   return true
 end
 
+
+local function packageOwnedFiles(p)
+  local out={}
+  local seen={}
+  for _,f in ipairs(p.files or {}) do
+    local path=f.path or f.source
+    local safe=safePath(path)
+    if safe and not seen[safe] then
+      seen[safe]=true
+      out[#out+1]=safe
+    end
+  end
+  for _,path in ipairs(p.ownedFiles or {}) do
+    local safe=safePath(path)
+    if safe and not seen[safe] then
+      seen[safe]=true
+      out[#out+1]=safe
+    end
+  end
+  return out
+end
+
+local function removePackageFiles(name,d,p)
+  local owned=packageOwnedFiles(p)
+  local shared={}
+  for otherName,other in pairs(d.packages or {}) do
+    if otherName~=name then
+      for _,path in ipairs(packageOwnedFiles(other)) do
+        shared[path]=true
+      end
+    end
+  end
+
+  local removed=0
+  local skipped=0
+  local dirs={}
+  for _,path in ipairs(owned) do
+    if not shared[path] and fs.exists(path) and not fs.isReadOnly(path) then
+      fs.delete(path)
+      removed=removed+1
+    elseif shared[path] then
+      skipped=skipped+1
+    end
+    local dir=fs.getDir(path)
+    while dir and dir~="" and dir~="/" and dir~=".ccpkg" and dir:sub(1,8)~=".ccpkg/" do
+      dirs[#dirs+1]=dir
+      local parent=fs.getDir(dir)
+      if parent==dir then break end
+      dir=parent
+    end
+  end
+
+  local seenDirs={}
+  for i=#dirs,1,-1 do
+    local dir=dirs[i]
+    if not seenDirs[dir] and fs.exists(dir) and fs.isDir(dir) and not fs.isReadOnly(dir) then
+      seenDirs[dir]=true
+      if #fs.list(dir)==0 then
+        fs.delete(dir)
+      end
+    end
+  end
+  return removed,skipped
+end
 
 local function remove(name,force)
   logLine(LOG_FILE,"REMOVE "..tostring(name))
@@ -640,17 +719,17 @@ local function remove(name,force)
     print("Use: pkg remove "..name.." --force")
     return false
   end
-  local backup=backupPackageFiles(name,p.files)
+  local owned=packageOwnedFiles(p)
+  local backup=backupPackageFiles(name,owned)
   if backup then print("Backup created: "..backup) end
-  for _,f in ipairs(p.files or {}) do
-    local x=safePath(f.path or f.source)
-    if x and fs.exists(x) then fs.delete(x) end
-  end
+  local removed,skipped=removePackageFiles(name,d,p)
   d.backups=d.backups or {}; d.backups[name]=backup
   d.packages[name]=nil
   local lock=lockData(); lock.packages[name]=nil
   saveDb(d); saveLock(lock)
-  print("Removed "..name..".")
+  print("Removed "..name.." and "..removed.." owned file(s).")
+  if skipped>0 then print("Kept "..skipped.." shared file(s) used by other installed packages.") end
+  print("Empty package directories were also removed.")
   return true
 end
 
