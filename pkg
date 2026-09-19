@@ -8,7 +8,7 @@ local DB_FILE=CONFIG_DIR.."/installed.json"
 local LOG_FILE=CONFIG_DIR.."/pkg.log"
 local ERROR_LOG_FILE=CONFIG_DIR.."/error.log"
 local DEFAULT_REPO="https://cubehub-studio.github.io/CC-PKG/"
-local PKG_VERSION="0.7.0"
+local PKG_VERSION="0.7.1"
 local PKG_SOURCE=DEFAULT_REPO
 
 local function ensureDir() if not fs.exists(CONFIG_DIR) then fs.makeDir(CONFIG_DIR) end end
@@ -176,16 +176,56 @@ local function find(name)
 end
 local function avSignatureScan(data)
   local s=tostring(data or ""):lower()
-  local signatures={"loadfile%(","dofile%(","shell%.run%(","shell%.execute%(","os%.shutdown%(","os%.reboot%(","http%.websocket%(","http%.post%(","fs%.delete%("}
+  local signatures={
+    "fs%.makeDir%s*%(","fs%.move%s*%(","fs%.copy%s*%(","fs%.delete%s*%(","fs%.open%s*%(",
+    "io%.open%s*%(","os%.run%s*%(","os%.loadAPI%s*%(","os%.unloadAPI%s*%(",
+    "loadfile%s*%(","dofile%s*%(","load%s*%(","require%s*%(",
+    "shell%.run%s*%(","shell%.execute%s*%(","shell%.openTab%s*%(","shell%.setDir%s*%(","shell%.setPath%s*%(",
+    "os%.shutdown%s*%(","os%.reboot%s*%(","settings%.set%s*%(","settings%.unset%s*%(","settings%.save%s*%(","settings%.load%s*%(",
+    "multishell%.launch%s*%(","multishell%.terminate%s*%(","multishell%.setTitle%s*%(","multishell%.setFocus%s*%(",
+    "redstone%.setOutput%s*%(","redstone%.setAnalogOutput%s*%(","redstone%.setBundledOutput%s*%(",
+    "rs%.setOutput%s*%(","rs%.setAnalogOutput%s*%(","rs%.setBundledOutput%s*%(",
+    "rednet%.open%s*%(","rednet%.close%s*%(","rednet%.send%s*%(","rednet%.broadcast%s*%(","rednet%.host%s*%(","rednet%.unhost%s*%(",
+    "peripheral%.call%s*%(","peripheral%.wrap%s*%(","peripheral%.find%s*%(",
+    "commands%.exec%s*%(","commands%.execAsync%s*%(","commands%.async%.",
+    "turtle%.forward%s*%(","turtle%.back%s*%(","turtle%.up%s*%(","turtle%.down%s*%(","turtle%.turnLeft%s*%(","turtle%.turnRight%s*%(",
+    "turtle%.dig%s*%(","turtle%.digUp%s*%(","turtle%.digDown%s*%(","turtle%.place%s*%(","turtle%.placeUp%s*%(","turtle%.placeDown%s*%(",
+    "turtle%.attack%s*%(","turtle%.attackUp%s*%(","turtle%.attackDown%s*%(","turtle%.suck%s*%(","turtle%.suckUp%s*%(","turtle%.suckDown%s*%(",
+    "turtle%.drop%s*%(","turtle%.dropUp%s*%(","turtle%.dropDown%s*%(","turtle%.equipLeft%s*%(","turtle%.equipRight%s*%(",
+    "turtle%.refuel%s*%(","turtle%.select%s*%(","turtle%.craft%s*%(","turtle%.transferTo%s*%(",
+    "http%.get%s*%(","http%.post%s*%(","http%.request%s*%(","http%.websocket%s*%(",
+    "term%.redirect%s*%(","term%.clear%s*%(","term%.clearLine%s*%(",
+    "window%.create%s*%(","window%.setVisible%s*%(",
+    "disk%.setLabel%s*%(","disk%.setID%s*%(","disk%.clear%s*%(","disk%.eject%s*%(",
+    "rednet%.send%s*%(","rednet%.broadcast%s*%("
+  }
   for _,p in ipairs(signatures) do if s:find(p) then return true,p end end
+  -- Common aliases and dynamic table indexing.
+  if s:find("fs%s*%[%s*['\"]") or s:find("shell%s*%[%s*['\"]") or s:find("os%s*%[%s*['\"]") or s:find("settings%s*%[%s*['\"]") or s:find("turtle%s*%[%s*['\"]") or s:find("redstone%s*%[%s*['\"]") or s:find("rednet%s*%[%s*['\"]") or s:find("peripheral%s*%[%s*['\"]") then
+    return true,"dynamic API table access"
+  end
   return false,nil
 end
 local function avHeuristicScan(data)
   local s=tostring(data or ""):lower()
   local score=0
-  local rules={{"dynamic code","loadstring%s*%(",3},{"dynamic code","load%s*%(",3},{"remote access","http%.get%s*%(",1},{"remote access","http%.post%s*%(",1},{"file deletion","fs%.delete%s*%(",2},{"shell execution","shell%.run%s*%(",3},{"shutdown","os%.shutdown%s*%(",2}}
+  local rules={
+    {"filesystem mutation","fs%.makeDir%s*%(",2},{"filesystem move/copy","fs%.[mc]ove%s*%(",3},{"filesystem deletion","fs%.delete%s*%(",4},
+    {"filesystem write","fs%.open%s*%([^,]+,%s*['\"]w",3},{"filesystem append/update","fs%.open%s*%([^,]+,%s*['\"]?[raw]%+?",2},
+    {"io file access","io%.open%s*%(",2},{"program execution","os%.run%s*%(",4},{"API loading","os%.loadAPI%s*%(",3},
+    {"dynamic code","loadfile%s*%(",4},{"dynamic code","dofile%s*%(",4},{"dynamic code","load%s*%(",4},{"module execution","require%s*%(",2},
+    {"shell execution","shell%.run%s*%(",4},{"shell execution","shell%.execute%s*%(",4},{"process spawn","shell%.openTab%s*%(",4},
+    {"shell state mutation","shell%.setDir%s*%(",1},{"shell state mutation","shell%.setPath%s*%(",1},
+    {"computer power","os%.[sr]eboot%s*%(",5},{"settings mutation","settings%.[su][nea][tv][e]?%s*%(",3},
+    {"multishell mutation","multishell%.[ltsa][eot][rn][mc]?%s*%(",2},
+    {"redstone output","(?:redstone|rs)%.set(?:Output|AnalogOutput|BundledOutput)%s*%(",3},
+    {"network state/send","rednet%.[ocshub][pnoa]*%s*%(",3},{"peripheral control","peripheral%.call%s*%(",4},{"peripheral wrapping","peripheral%.wrap%s*%(",2},
+    {"command execution","commands%.[%a_]+%s*%(",5},{"turtle world mutation","turtle%.[%a_]+%s*%(",2},
+    {"network access","http%.[gprw][%a]*%s*%(",2},{"terminal mutation","term%.[rc][%a]+%s*%(",1},
+    {"dynamic API access","[%a_]+%s*%[%s*['\"]","1"}
+  }
   local hits={}
-  for _,r in ipairs(rules) do if s:find(r[2]) then score=score+r[3]; hits[#hits+1]=r[1] end end
+  for _,r in ipairs(rules) do if s:find(r[2]) then score=score+tonumber(r[3]); hits[#hits+1]=r[1] end end
   if score>=5 then return true,table.concat(hits,", ") end
   return false,nil
 end
