@@ -200,7 +200,7 @@ local AV_REPO=DEFAULT_REPO.."antivirus/"
 local function safePath(path)
   path=tostring(path or ""):gsub("^/","")
   if path=="" or path:find("%.%.",1,true) then return nil end
-  if path:sub(1,#CONFIG_DIR-1)==CONFIG_DIR:sub(2) then return nil end
+  if path==".ccpkg" or path:sub(1,8)==".ccpkg/" then return nil end
   return "/"..path
 end
 
@@ -583,7 +583,7 @@ local function install(name)
         local h=fs.open(safe,"w")
         if not h then
           for _,b in ipairs(backups) do if b.path then restoreBackup(b.path) end end
-          for _,w in ipairs(written) do if fs.exists(w) then fs.delete(w) end end
+          for _,w in ipairs(written) do local owned=false; for _,b in ipairs(backups) do if not b.path then owned=true end end; if owned and fs.exists(w) then fs.delete(w) end end
           return fail("cannot write "..tostring(safe))
         end
         h.write(f.data); h.close()
