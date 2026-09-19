@@ -1,57 +1,39 @@
 # Creating a CC PKG Repository
 
-This guide explains how to make your own package repository for CC PKG.
+This guide defines the CC-PKG repository format, including multiple packages, version directories, and device-specific versions.
 
-You do **not** need to run a server. A normal static website host is enough.
+## Repository layout
 
-## 1. Make a repository
-
-Create a folder for your package repository.
-
-A simple repository looks like this:
+A repository can contain any number of packages:
 
 ~~~text
 my-pkg-repo/
 ├── repometadata.json
 ├── index.json
 └── packages/
+    ├── moon-bios/
+    │   ├── package.json
+    │   └── versions/
+    │       ├── 1.0.0/
+    │       │   ├── devicedata
+    │       │   ├── package.json
+    │       │   └── startup
+    │       └── 1.1.0/
+    │           ├── devicedata
+    │           ├── package.json
+    │           └── startup
     └── hello/
-        └── package.json
+        ├── package.json
+        └── versions/
+            └── 1.0.0/
+                ├── devicedata
+                ├── package.json
+                └── hello
 ~~~
 
-You can use GitHub Pages to host this for free.
+The packages directory is the package collection. Each package has its own directory, and each package can contain any number of versions.
 
-## 2. Create `repometadata.json`
-
-Create a file named exactly:
-
-~~~text
-repometadata.json
-~~~
-
-Put it in the root of your repository.
-
-Example:
-
-~~~json
-{
-  "name": "My Packages"
-}
-~~~
-
-The `name` field is the name CC PKG will show for your repository.
-
-You do **not** give the repository name to the user. CC PKG gets it automatically from `repometadata.json`.
-
-## 3. Create `index.json`
-
-Create a file named exactly:
-
-~~~text
-index.json
-~~~
-
-This file tells CC PKG which packages are available.
+## index.json
 
 Example:
 
@@ -63,23 +45,41 @@ Example:
     "hello": {
       "name": "hello",
       "description": "A small example package",
-      "manifest": "packages/hello/package.json"
+      "versions": {
+        "1.0.0": {
+          "path": "packages/hello/versions/1.0.0/"
+        },
+        "1.1.0": {
+          "path": "packages/hello/versions/1.1.0/"
+        }
+      }
     }
   }
 }
 ~~~
 
-The package name is `hello`. The manifest path is `packages/hello/package.json`. Paths are relative to your repository URL.
+For a version directory, path points to the directory containing that version.
 
-## 4. Create the package manifest
+CC-PKG automatically looks for the version's package.json and devicedata. A manifest or devicedata path may also be supplied explicitly.
 
-Create:
+## Package metadata
 
-~~~text
-packages/hello/package.json
+Create packages/hello/package.json:
+
+~~~json
+{
+  "name": "hello",
+  "description": "A small example package",
+  "author": "Your Name",
+  "license": "MIT"
+}
 ~~~
 
-Example:
+This is package-level metadata. Version-specific installation data belongs inside the version directory.
+
+## Version manifest
+
+Create packages/hello/versions/1.0.0/package.json:
 
 ~~~json
 {
@@ -87,271 +87,174 @@ Example:
   "version": "1.0.0",
   "author": "Your Name",
   "description": "A small example package",
-  "license": "MIT",
-  "homepage": "https://example.com/",
-  "readme": "README.md",
-  "changelog": "CHANGELOG.md",
-  "dependencies": {
-    "library": ">=1.0.0 <2.0.0"
-  },
+  "dependencies": {},
   "files": [
     {
       "path": "hello",
-      "source": "packages/hello/hello",
+      "source": "packages/hello/versions/1.0.0/hello",
       "sha256": "PUT_THE_FILE_SHA256_HERE"
     }
   ]
 }
 ~~~
 
-The manifest tells CC PKG which files to download.
+The version manifest tells CC-PKG which files to install.
 
-## 5. Add the package files
+## devicedata
 
-For the example above, create:
+Every new-style version should contain a file named devicedata.
+
+Recommended JSON:
+
+~~~json
+{
+  "devices": [
+    "advanced_pocket_computer",
+    "noisy_pocket_computer"
+  ]
+}
+~~~
+
+Supported device identifiers are:
 
 ~~~text
-packages/hello/hello
+computer
+advanced_computer
+pocket_computer
+advanced_pocket_computer
+noisy_pocket_computer
 ~~~
 
-Put your Lua program in that file:
+Device matching is explicit. If a version supports several device types, list all of them.
 
-~~~lua
-print("Hello from my package!")
+A version supporting every pocket device can use:
+
+~~~json
+{
+  "devices": [
+    "pocket_computer",
+    "advanced_pocket_computer",
+    "noisy_pocket_computer"
+  ]
+}
 ~~~
 
-When installed, this file is downloaded to `/hello` because the manifest uses `"path": "hello"`.
+CC-PKG detects pocket computers through the CC:Tweaked pocket API and distinguishes advanced terminals using terminal colour support. The pocket API is only available on pocket computers, and advanced computers support colour output. citeturn0search3turn7search0
 
-## 6. Finished repository
-
-Your repository should now look like:
+devicedata may also be a simple newline-separated list:
 
 ~~~text
-my-pkg-repo/
-├── repometadata.json
-├── index.json
-└── packages/
-    └── hello/
-        ├── package.json
-        └── hello
+computer
+advanced_computer
 ~~~
 
-## 7. Host the repository
+Blank lines and lines beginning with # are ignored.
 
-Your repository must be available over HTTP or HTTPS.
+### Noisy pocket computers
 
-GitHub Pages is a free option.
+noisy_pocket_computer is an optional CC-PKG device identifier for environments which expose a speaker peripheral to the pocket computer. CC:Tweaked exposes speakers through the peripheral system. citeturn2search3
 
-For example, if your GitHub Pages address is:
+Because modded devices can expose different APIs, repository maintainers should list every device target they have actually tested.
 
-~~~text
-https://yourname.github.io/my-pkg-repo/
-~~~
+## Version selection
 
-these files must be reachable:
-
-~~~text
-https://yourname.github.io/my-pkg-repo/repometadata.json
-https://yourname.github.io/my-pkg-repo/index.json
-https://yourname.github.io/my-pkg-repo/packages/hello/package.json
-https://yourname.github.io/my-pkg-repo/packages/hello/hello
-~~~
-
-## 8. Add your repository to CC PKG
-
-Users only need your repository URL:
-
-~~~text
-pkg repo add https://yourname.github.io/my-pkg-repo/
-~~~
-
-CC PKG automatically:
-
-1. Downloads `repometadata.json`.
-2. Reads the repository name.
-3. Downloads `index.json`.
-4. Checks that the repository works.
-5. Adds the repository.
-
-Users can see their repositories with:
-
-~~~text
-pkg repo list
-~~~
-
-Do not ask users to provide a separate repository name.
-
-## 9. Install your package
-
-After adding your repository:
+When a user runs:
 
 ~~~text
 pkg install hello
 ~~~
 
-CC PKG finds `hello` in `index.json`, downloads its manifest, and downloads the files listed in that manifest.
+CC-PKG:
 
-## Adding more packages
+1. Finds the package.
+2. Examines its versions.
+3. Reads devicedata.
+4. Detects the current device.
+5. Discards incompatible versions.
+6. Applies dependency constraints.
+7. Selects the highest compatible numeric version.
+8. Downloads the selected manifest and files.
+9. Performs validation and antivirus scanning.
+10. Installs the package transactionally.
 
-You can put many packages in one repository.
+The user does not need to manually choose the hardware version.
 
-Example:
+## Multiple device-specific versions
+
+A package can have completely different implementations:
 
 ~~~text
-my-pkg-repo/
-├── repometadata.json
-├── index.json
-└── packages/
-    ├── hello/
-    │   ├── package.json
-    │   └── hello
-    ├── calculator/
-    │   ├── package.json
-    │   └── calculator
-    └── my-os/
-        ├── package.json
-        └── startup
+packages/
+└── moon-bios/
+    ├── package.json
+    └── versions/
+        ├── 1.2.0/
+        │   ├── devicedata
+        │   ├── package.json
+        │   └── startup
+        ├── 1.2.0-advance/
+        │   ├── devicedata
+        │   ├── package.json
+        │   └── startup
+        ├── 1.3.0/
+        │   ├── devicedata
+        │   ├── package.json
+        │   └── startup
+        └── 1.3.0-pocket/
+            ├── devicedata
+            ├── package.json
+            └── startup
 ~~~
 
-Add each package to `index.json`.
+The directory name is a repository identifier. The version field in package.json is the version used for dependency comparison.
 
-## Multiple versions
+## Dependencies and integrity
 
-You can provide different versions of a package.
-
-A version name containing `pocket` is treated as a pocket-computer version. Other version names are treated as regular-computer versions.
-
-Example:
+Version manifests support dependency constraints and optional SHA-256 hashes:
 
 ~~~json
 {
-  "name": "my-os",
-  "description": "My operating system",
-  "versions": {
-    "v1.0": {
-      "manifest": "packages/my-os/1.0/package.json"
-    },
-    "v1.1": {
-      "manifest": "packages/my-os/1.1/package.json"
-    },
-    "v1.1 pocket": {
-      "manifest": "packages/my-os/1.1-pocket/package.json"
-    }
-  }
-}
-~~~
-
-A regular computer can select `v1.1`. A pocket computer can select `v1.1 pocket`.
-
-## Dependencies
-
-A package can require other packages.
-
-Example:
-
-~~~json
-{
-  "name": "my-app",
-  "version": "1.0.0",
-  "author": "Your Name",
-  "description": "An application that needs another package",
   "dependencies": {
     "library": ">=1.0.0 <2.0.0"
   },
   "files": [
     {
-      "path": "my-app",
-      "source": "packages/my-app/my-app"
+      "path": "hello",
+      "source": "packages/hello/versions/1.0.0/hello",
+      "sha256": "..."
     }
   ]
 }
 ~~~
 
-When the user runs `pkg install my-app`, CC PKG resolves the dependency tree, checks version constraints, downloads the complete tree, scans it before writing anything, verifies any supplied SHA-256 hashes, then commits the installation transaction.
+CC-PKG resolves the dependency tree, validates paths, downloads the tree, scans it, verifies supplied hashes, and commits the installation transaction.
 
-## Package integrity and metadata
+## Hosting
 
-Each file may optionally include a SHA-256 hash:
+The repository must be reachable over HTTP or HTTPS. GitHub Pages works well because it serves static files using the repository's directory structure. citeturn6search0turn6search1
 
-~~~json
-{
-  "path": "hello",
-  "source": "packages/hello/hello",
-  "sha256": "..."
-}
-~~~
-
-CC PKG verifies supplied hashes before installation and records downloaded hashes in `/.ccpkg/pkg-lock.json`. The lock file records exact installed versions, repositories, targets and file hashes.
-
-Optional manifest metadata includes:
-
-~~~json
-{
-  "license": "MIT",
-  "homepage": "https://example.com/",
-  "readme": "README.md",
-  "changelog": "CHANGELOG.md"
-}
-~~~
-
-## Client diagnostics
-
-Useful commands include:
+Users add a repository with:
 
 ~~~text
-pkg inspect hello
-pkg test hello
-pkg verify hello
-pkg audit
-pkg doctor
-pkg recovery
-pkg clean
-pkg autoremove
+pkg repo add https://yourname.github.io/my-pkg-repo/
 ~~~
 
-`pkg test` validates a package and its dependency tree without installing it. `pkg inspect` shows metadata, detected capabilities and antivirus status. `pkg verify` checks installed files against recorded hashes. `pkg audit` checks every installed package. `pkg doctor` checks PKG state and repository health.
+## Updating
 
-## Updating packages
-
-When you publish a newer version, update `index.json` and add the new manifest and files.
-
-Users can then run:
+Add a new version directory and add it to index.json. Users can then run:
 
 ~~~text
 pkg upgrade
 ~~~
 
-## Testing
+CC-PKG selects the newest compatible version.
 
-Before sharing your repository, check that `repometadata.json` and `index.json` work in a web browser.
+## Legacy compatibility
 
-Then test in CC:Tweaked:
-
-~~~text
-pkg repo add https://yourname.github.io/my-pkg-repo/
-pkg repo list
-pkg search hello
-pkg install hello
-~~~
-
-If `pkg repo add` fails, check that:
-
-- `repometadata.json` exists at the repository root.
-- `repometadata.json` is valid JSON.
-- `repometadata.json` contains a non-empty `name`.
-- `index.json` exists and is valid JSON.
-- Every package manifest exists.
-- Every package file is reachable.
-- CC:Tweaked HTTP access is enabled.
+CC-PKG 0.9.0 still supports older repositories using direct manifest entries and version names such as v1.3 pocket. New repositories should use version directories and devicedata.
 
 ## Security
 
-A package can contain Lua code that runs on a user's CC:Tweaked computer. CC PKG now performs pre-install antivirus scanning, path validation, dependency-tree validation, optional SHA-256 verification, and transactional installation with rollback backups.
-
-The scanner reports suspicious capabilities such as filesystem access, network access, commands, redstone, turtles, peripherals and program execution. These are capability indicators, not proof that a package is malicious. CC:Tweaked also supports custom peripherals, so static scanning cannot prove arbitrary Lua is safe. See the official CC:Tweaked documentation for the API and peripheral model.
+CC-PKG performs path validation, dependency validation, optional SHA-256 verification, antivirus scanning, and transactional installation with rollback backups.
 
 Only install repositories and packages you trust.
-
-Community repositories are independently maintained. Creating a repository does not make it an official CC PKG repository.
-
-Have fun making packages, and thanks for helping the CC PKG community grow! 🚀
