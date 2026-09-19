@@ -192,7 +192,7 @@ local function config()
   if type(c)~="table" then c={repositories={{name="official",url=DEFAULT_REPO}}}; writeJson(CONFIG_FILE,c) end
   return c
 end
-local function db() return readJson(DB_FILE,{packages={}}) end
+local function db() return readJson(DB_FILE,{packages={},backups={}}) end
 local function saveDb(d) return writeJson(DB_FILE,d) end
 local BACKUP_DIR=CONFIG_DIR.."/backups"
 local AV_REPO=DEFAULT_REPO.."antivirus/"
@@ -548,7 +548,7 @@ end
 local function install(name)
   logLine(LOG_FILE,"INSTALL TRANSACTION "..tostring(name).." on "..computerType())
   local plan,err=collectPlan(name); if not plan then return fail(err) end
-  local d=db()
+  local d=db(); d.backups=d.backups or {}
   local lock=lockData()
   local order=orderedPlan(plan)
   print("Preparing "..#order.." package(s)...")
@@ -593,7 +593,8 @@ local function install(name)
       for _,f in ipairs(p.files) do hashes[f.path]=f.sha256 end
       d.packages[p.name]={
         version=p.manifest.version,target=computerType(),files=p.manifest.files or {},
-        repository=p.entry._repo.name,backup=(backups[#backups].name==p.name and backups[#backups].path or nil),
+        repository=p.entry._repo.name,backup=(function() for _,b in ipairs(backups) do if b.name==p.name then return b.path end end end)(),
+        dependencies=copyValue(p.deps or {}),explicit=(p.name==name),
         sha256=hashes,capabilities=p.capabilities or {},author=p.manifest.author,
         license=p.manifest.license,homepage=p.manifest.homepage,readme=p.manifest.readme,
         changelog=p.manifest.changelog
@@ -630,6 +631,7 @@ local function remove(name,force)
     local x=safePath(f.path or f.source)
     if x and fs.exists(x) then fs.delete(x) end
   end
+  d.backups=d.backups or {}; d.backups[name]=backup
   d.packages[name]=nil
   local lock=lockData(); lock.packages[name]=nil
   saveDb(d); saveLock(lock)
@@ -727,11 +729,16 @@ end
 local function autoremove()
   local d=db(); local needed={}
   for _,p in pairs(d.packages or {}) do
+    if not p.explicit then
+      -- Non-explicit packages may still be needed by an explicit package.
+    end
+  end
+  for _,p in pairs(d.packages or {}) do
     for _,dep in ipairs(p.dependencies or {}) do local n=dependencySpec(dep); if n then needed[n]=true end end
   end
   local removed=0
   for n in pairs(d.packages or {}) do
-    if not needed[n] then
+    if not p.explicit and not needed[n] then
       local ok=remove(n,false)
       if ok then removed=removed+1 end
     end
@@ -866,10 +873,16 @@ local function checkForUpdate()
   return false
 end
 
-local function restorePackage(name) 
+local function restorePackage(name)
   local d=db(); local p=d.packages[name]
-  if not p or not p.backup then return fail("no backup available for "..name) end
-  if restoreBackup(p.backup) then print("Restored "..name.." from backup.") return true end
+  local root=(p and p.backup) or (d.backups and d.backups[name])
+  if not root then return fail("no backup available for "..name) end
+  if restoreBackup(root) then
+    if d.backups then d.backups[name]=nil end
+    saveDb(d)
+    print("Restored "..name.." from backup.")
+    return true
+  end
   return fail("could not restore backup for "..name)
 end
 
