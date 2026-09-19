@@ -2,6 +2,17 @@
 
 This guide defines the CC-PKG repository format, including multiple packages, version directories, and device-specific versions.
 
+## Default preset repository
+
+CC-PKG includes the CubeHub Studio CC-PKG Preset Repository automatically. It is intended for curated starter packages and useful presets.
+
+Repository:
+~~~text
+https://raw.githubusercontent.com/CubeHub-studio/CC-PKG-Preset-Repository/main/
+~~~
+
+It is configured as the built-in `presets` repository and does not need to be added manually.
+
 ## Repository layout
 
 A repository can contain any number of packages:
@@ -251,7 +262,7 @@ CC-PKG selects the newest compatible version.
 
 ## Legacy compatibility
 
-CC-PKG 0.9.0 still supports older repositories using direct manifest entries and version names such as v1.3 pocket. New repositories should use version directories and devicedata.
+CC-PKG 0.9.1 still supports older repositories using direct manifest entries and version names such as v1.3 pocket. New repositories should use version directories and devicedata.
 
 ## Security
 
