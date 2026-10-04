@@ -437,6 +437,41 @@ local function legacyVersionCompatible(v)
   return false
 end
 
+local function pkgInstruction(repo,base,defaultName,defaultVersion)
+  local p=base and (base..".pkg")
+  if not p then return {},nil end
+  local raw,e=get(url(repo._base or repo.url,p))
+  if not raw then return {},nil end
+  local ok,data=pcall(textutils.unserialiseJSON,raw)
+  if not ok or type(data)~="table" then return {},nil end
+  return data,p
+end
+
+local function readPkgIgnore(repo,base,ignoreFile)
+  ignoreFile=ignoreFile or ".pkgignore"
+  local p=base and (base..ignoreFile)
+  if not p then return {} end
+  local raw=get(url(repo._base or repo.url,p))
+  if not raw then return {} end
+  local out={}
+  for line in tostring(raw):gmatch("[^\r\n]+") do
+    line=line:gsub("^%s+",""):gsub("%s+$","")
+    if line~="" and not line:match("^#") then out[#out+1]=line end
+  end
+  return out
+end
+
+local function pkgIgnoreMatch(path,patterns)
+  path=tostring(path or ""):gsub("^/","")
+  local base=path:match("([^/]+)$") or path
+  for _,pat in ipairs(patterns or {}) do
+    pat=tostring(pat):gsub("^/",""):gsub("/$","")
+    local luaPat="^"..pat:gsub("([%%%^%$%(%)%.%+%-%[%]])","%%%1"):gsub("%*",".*").."$"
+    if path:match(luaPat) or base:match(luaPat) or path:sub(1,#pat+1)==pat.."/" then return true end
+  end
+  return false
+end
+
 local function manifest(repo,entry,version)
   local p
   local ve=versionEntry(entry,version)
@@ -447,6 +482,32 @@ local function manifest(repo,entry,version)
   local s,e=get(url(repo._base or repo.url,p)); if not s then return nil,e end
   local ok,v=pcall(textutils.unserialiseJSON,s)
   if not ok or type(v)~="table" then return nil,"invalid package manifest" end
+
+  -- .pkg is declarative package instructions. It never executes code.
+  -- It may select the manifest and provide a .pkgignore file for payload filtering.
+  local base
+  if p then base=p:gsub("[^/]+$","") end
+  local instructions,_=pkgInstruction(repo,base,v.name or entry.name,version)
+  if instructions.manifest and instructions.manifest~="" and instructions.manifest~=p then
+    local alt=instructions.manifest
+    local as,ae=get(url(repo._base or repo.url,alt))
+    if as then
+      local aok,av=pcall(textutils.unserialiseJSON,as)
+      if aok and type(av)=="table" then v=av; p=alt; base=p:gsub("[^/]+$","") end
+    end
+  end
+  v._pkgInstructions=instructions
+  v._pkgIgnore=readPkgIgnore(repo,base,instructions.ignoreFile)
+  if type(v.files)=="table" and #v.files>0 and #v._pkgIgnore>0 then
+    local filtered={}
+    for _,f in ipairs(v.files) do
+      local source=f.source or f.path
+      if not pkgIgnoreMatch(source,v._pkgIgnore) and not pkgIgnoreMatch(f.path, v._pkgIgnore) then
+        filtered[#filtered+1]=f
+      end
+    end
+    v.files=filtered
+  end
   return v,p
 end
 versionNumber=function(v)
