@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "type": "cc-pkg-instructions",
+  "package": "example",
+  "version": "*",
+  "files": "manifest",
+  "ignoreFile": ".pkgignore"
+}
