@@ -1,8 +1,0 @@
-{
-  "format": 1,
-  "type": "cc-pkg-instructions",
-  "package": "v1.2-advance",
-  "version": "v1.2-advance",
-  "files": "manifest",
-  "ignoreFile": ".pkgignore"
-}
