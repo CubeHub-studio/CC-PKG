@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "type": "cc-pkg-instructions",
+  "package": "v1.3.0",
+  "version": "v1.3.0",
+  "files": "manifest",
+  "ignoreFile": ".pkgignore"
+}
