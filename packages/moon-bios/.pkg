@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "type": "cc-pkg-instructions",
+  "package": "moon-bios",
+  "version": "*",
+  "files": "manifest",
+  "ignoreFile": ".pkgignore"
+}
