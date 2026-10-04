@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "type": "cc-pkg-instructions",
+  "package": "v1.3-pocket",
+  "version": "v1.3-pocket",
+  "files": "manifest",
+  "ignoreFile": ".pkgignore"
+}
