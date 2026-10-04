@@ -1,0 +1,5 @@
+# Files and directories ignored by CC-PKG package tooling
+.pkg
+.pkgignore
+package.json
+devicedata
